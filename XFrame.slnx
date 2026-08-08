@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/XFrame/" />
+  <Folder Name="/XFrame/.github/workflows/" />
+  <Folder Name="/XFrame/src/">
+    <Project Path="src/XFrame.ApiService/XFrame.ApiService.csproj" />
+    <Project Path="src/XFrame.AppHost/XFrame.AppHost.csproj" Id="ecb27c8d-2847-4843-abd0-862753e89f21" />
+    <Project Path="src/XFrame.ServiceDefaults/XFrame.ServiceDefaults.csproj" />
+    <Project Path="src/XFrame.Tests/XFrame.Tests.csproj" />
+    <Project Path="src/XFrame.Web/XFrame.Web.csproj" />
+  </Folder>
+</Solution>

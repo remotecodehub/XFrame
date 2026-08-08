@@ -1,0 +1,140 @@
+@page "/reset"
+@layout Layout.CommonLayout
+@inherits LayoutComponentBase
+
+@attribute [AllowAnonymous]
+
+<MudContainer MaxWidth="MaxWidth.ExtraSmall" Class="d-flex align-center justify-center min-vh-100 py-8">
+    <MudPaper Elevation="4" Class="pa-6 width-full rounded-lg">
+         
+        <MudCard Class="d-flex flex-column align-center mb-6">
+            <MudCardContent> 
+                <MudText Color="MudColor.Secondary" Align="Align.Center">
+                    Informe o código de reset recebido no email informado:
+                </MudText>
+            </MudCardContent>
+        </MudCard> 
+        <MudForm @ref="_form" @bind-IsValid="@_isValid">
+            <MudStack Spacing="3">
+                <MudInputLabel >
+                    <MudText Color=MudColor.Dark Typo=Typo.caption>Email para username</MudText>
+                </MudInputLabel>
+                @* <MudTextField T="string"
+                            @bind-Value="_resetModel.Email"
+                            Label="E-mail"
+                            Variant="Variant.Outlined"
+                            Adornment="Adornment.End"
+                            AdornmentIcon="@Icons.Material.Filled.Email"
+                            Required="true"
+                            RequiredError="O e-mail é obrigatório." />
+
+                <MudTextField T="string"
+                              @bind-Value="_resetModel.Password"
+                              Label="Senha"
+                              Variant="Variant.Outlined"
+                              InputType="@_passwordInputType"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@_passwordIcon"
+                              OnAdornmentClick="TogglePasswordVisibility"
+                              Required="true"
+                              RequiredError="A senha é obrigatória." />
+
+                <MudTextField T="string"
+                              @bind-Value="_resetModel.Code"
+                              Label="Código de reset (EMAIL)"
+                              Variant="Variant.Outlined"
+                              InputType="@_passwordInputType"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@_passwordIcon"
+                              OnAdornmentClick="TogglePasswordVisibility"
+                              Required="true"
+                              RequiredError="O código de reset é obrigatório." />
+
+                
+
+                <MudButton Variant="Variant.Filled"
+                           Color="MudColor.Primary"
+                           Size="Size.Large"
+                           FullWidth="true"
+                           Disabled="@(!_isValid || _isLoading)"
+                           OnClick="@(() => SubmitAsync())"
+                           Class="mt-2 py-3">
+                    @if (_isLoading)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                        <MudText Class="ms-2">Resetando...</MudText>
+                    }
+                    else
+                    {
+                        <MudText>Resetar</MudText>
+                    }
+                @* </MudButton> *@
+
+                <MudDivider Class="my-3" />
+ 
+
+            </MudStack>
+        </MudForm>
+
+    </MudPaper>
+</MudContainer>
+
+
+
+@code {
+    private MudForm _form = null!;
+    private bool _isValid;
+    private bool _isLoading;
+    private bool _showPassword;
+    private InputType _passwordInputType = InputType.Password;
+    private string _passwordIcon = Icons.Material.Filled.VisibilityOff;
+
+    // private ResetModel _resetModel = new();
+
+    private void TogglePasswordVisibility()
+    {
+        if (_showPassword)
+        {
+            _showPassword = false;
+            _passwordIcon = Icons.Material.Filled.VisibilityOff;
+            _passwordInputType = InputType.Password;
+        }
+        else
+        {
+            _showPassword = true;
+            _passwordIcon = Icons.Material.Filled.Visibility;
+            _passwordInputType = InputType.Text;
+        }
+    }
+
+    private async Task SubmitAsync(CancellationToken cancellationToken = default)
+    {
+        await _form.ValidateAsync();
+
+        if (_isValid)
+        {
+            _isLoading = true;
+            
+            try
+            {
+                // var result = await ApiService.ResetPasswordAsync(new ResetPasswordRequest(){ Email = _resetModel.Email, NewPassword = _resetModel.Password, ResetCode = _resetModel.Code, AdditionalData = null }, cancellationToken); 
+
+                // if (result is null) throw new Exception("Unexpected error");
+                
+                Snackbar.Add("Reset efetuado com sucesso! \nRedirecionando para a tela de acesso ao sistema.", Severity.Success);
+
+                Navigation.NavigateTo("/login");
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Register failed: {ex.Message}", Severity.Error);
+            }
+            finally
+            {
+                _isLoading = false;
+            }
+        }
+    }
+
+    
+}

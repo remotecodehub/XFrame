@@ -1,0 +1,480 @@
+@page "/login" 
+@inherits LayoutComponentBase
+@layout Layout.CommonLayout
+@attribute [AllowAnonymous]
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="d-flex align-center justify-center min-vh-100 py-8">
+    <MudPaper Elevation="4" Class="pa-6 width-full rounded-lg">
+
+        <MudCard Outlined="true" Class="d-flex flex-column align-center ma-6 pa-2">
+            <MudCardHeader>
+                <CardHeaderContent>
+                    <div class="d-flex flex-column align-center">
+                        <MudIcon Icon="@Icons.Material.Filled.Lock" Color="MudColor.Primary" Size="Size.Large" Class="mb-2" />
+                        <MudText Typography="Typography.h5" Color="MudColor.Primary" Align="Align.Center" Style="font-weight: 600;">
+                            Acessar ou Registrar Conta
+                        </MudText>
+                    </div>
+                </CardHeaderContent>
+            </MudCardHeader>
+            <MudCardContent>
+                <MudText Color="MudColor.Secondary" Align="Align.Center">
+                    Insira suas credenciais para continuar
+                </MudText>
+            </MudCardContent>
+        </MudCard>
+         
+        <MudForm @ref="_form" Model="@_model">
+            <MudStack Spacing="3">
+
+                <MudTextField T="string"
+                              @bind-Value="_model.Email"
+                              Label="E-mail"
+                              Variant="Variant.Outlined"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@Icons.Material.Filled.Person"
+                              Required="true"
+                              RequiredError="O e-mail é obrigatório."
+                              AutoComplete="username" />
+
+                <MudTextField T="string"
+                              @bind-Value="_model.Password"
+                              Label="Senha"
+                              Variant="Variant.Outlined"
+                              InputType="@_passwordInputType"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@_passwordIcon"
+                              OnAdornmentClick="TogglePasswordVisibility"
+                              Required="true"
+                              RequiredError="A senha é obrigatória."
+                              AutoComplete="current-password" />
+                               
+                <MudPaper Class="pa-4 my-2" Outlined="true">
+                    <MudText Typography="Typography.caption" Color="MudColor.Dark" Class="mb-2 d-block">Possui dúvidas com a conta?</MudText>
+                    <MudStack Spacing="2">
+                        <MudButton Variant="Variant.Text"
+                                   Color="MudColor.Error"
+                                   FullWidth="true"
+                                   OnClick="@(async () => await ForgotPassword(_model.Email))">
+                            Esqueceu a senha?
+                        </MudButton>
+                        <MudButton Variant="Variant.Text"
+                                   Color="MudColor.Warning"
+                                   FullWidth="true"
+                                   OnClick="@(async () => await ResendConfirmation(_model.Email))">
+                            Reenviar e-mail de confirmação
+                        </MudButton>
+                    </MudStack>
+                </MudPaper>
+
+                <MudButton Variant="Variant.Filled"
+                           Color="MudColor.Primary"
+                           Size="Size.Large"
+                           FullWidth="true"
+                           Disabled="@_isLoginLoading"
+                           OnClick="@(async () => await LoginAsync())"
+                           Class="mt-2 py-3">
+                    @if (_isLoginLoading)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                        <MudText Class="ms-2">Entrando...</MudText>
+                    }
+                    else
+                    {
+                        <MudText>Entrar</MudText>
+                    }
+                </MudButton>
+
+                <MudDivider Class="my-2" />
+                 
+                <MudButton Variant="Variant.Outlined"
+                           Color="MudColor.Success"
+                           FullWidth="true"
+                           Class="py-2"
+                           Disabled="@_isRegisterLoading"
+                           OnClick="@(async () => await RegisterAsync())">
+                    @if (_isRegisterLoading)
+                    {
+                        <MudProgressCircular Class="ms-n1" Size="Size.Small" Indeterminate="true" />
+                        <MudText Class="ms-2">Criando...</MudText>
+                    }
+                    else
+                    {
+                        <MudText>Criar nova conta</MudText>
+                    }
+                </MudButton>
+
+            </MudStack>
+        </MudForm>
+
+    </MudPaper>
+</MudContainer>
+
+
+@code {
+    private MudForm _form = null!;
+    private bool _isLoginLoading;
+    private bool _isRegisterLoading;
+    private bool _showPassword;
+    private InputType _passwordInputType = InputType.Password;
+    private string _passwordIcon = Icons.Material.Filled.VisibilityOff;
+
+    private UserModel _model = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        if (user.Identity?.IsAuthenticated == true)
+        {
+            Navigation.NavigateTo("/", forceLoad: false);
+        }
+    }
+     
+    private async Task<bool> ValidateFormAsync()
+    {
+        await _form.ValidateAsync();
+        return _form.IsValid;
+    }
+
+
+    
+    private async Task ResendConfirmation(string email, CancellationToken cancellationToken = default)
+    {
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out _))
+        {
+            Snackbar.Add(
+                "E-mail inválido.",
+                Severity.Error);
+
+            return;
+        }
+
+        try
+        {
+            // await ApiService.ResendConfirmationEmailAsync(
+            //     new ResendConfirmationEmailRequest
+            //     {
+            //         AdditionalData = null,
+            //         Email = email
+            //     },
+            //     cancellationToken);
+
+            Snackbar.Add(
+                "Se existir uma conta associada a este e-mail, uma mensagem foi enviada com as instruções.",
+                Severity.Info);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Snackbar.Add(
+                "A operação foi cancelada.",
+                Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(
+                $"Falha ao reenviar o e-mail de confirmação: {ex.Message}",
+                Severity.Error);
+        }
+    }
+
+    private async Task ForgotPassword(string email, CancellationToken cancellationToken = default)
+    {
+        if (!System.Net.Mail.MailAddress.TryCreate(email, out _))
+        {
+            Snackbar.Add(
+                "E-mail inválido.",
+                Severity.Error);
+
+            return;
+        }
+
+        try
+        {
+            // await ApiService.ForgotPasswordAsync(
+            //     new ForgotPasswordRequest
+            //     {
+            //         AdditionalData = null,
+            //         Email = email
+            //     },
+            //     cancellationToken);
+
+            Snackbar.Add(
+                "Se existir uma conta associada a este e-mail, uma mensagem foi enviada com as instruções.",
+                Severity.Info);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Snackbar.Add(
+                "A operação foi cancelada.",
+                Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(
+                $"Falha ao enviar o e-mail de recuperação de senha: {ex.Message}",
+                Severity.Error);
+        }
+    }
+
+
+    private async Task LoginAsync(CancellationToken cancellationToken = default)
+    {
+        // Força a validação no clique
+        if (!await ValidateFormAsync())
+            return;
+
+        _isLoginLoading = true;
+
+        // try
+        // {
+            // var result = await ApiService.LoginAsync(
+            //    new LoginRequest
+            //    {
+            //        Email = _model.Email,
+            //        Password = _model.Password,
+            //        AdditionalData = null,
+            //        TwoFactorCode = null,
+            //        TwoFactorRecoveryCode = null
+            //    },
+            //    false,
+            //    false,
+            //    cancellationToken);
+
+        //     if (result is null ||
+        //         string.IsNullOrWhiteSpace(result.AccessToken) ||
+        //         string.IsNullOrWhiteSpace(result.RefreshToken))
+        //     {
+        //         throw new InvalidOperationException(
+        //             "The authentication response did not contain valid tokens.");
+        //     }
+
+        //     if (result.ExpiresIn <= 0)
+        //     {
+        //         throw new InvalidOperationException(
+        //             "The authentication response did not contain a valid token expiration.");
+        //     }
+        //     var expiresIn = Convert.ToInt64(result.ExpiresIn);
+ 
+        //     var expiration = DateTimeOffset.UtcNow
+        //         .AddSeconds(expiresIn)
+        //         .AddMinutes(-5);
+
+        //     await SettingsService.SetAsync(
+        //         "access",
+        //         result.AccessToken);
+
+        //     await SettingsService.SetAsync(
+        //         "refresh",
+        //         result.RefreshToken);
+
+        //     await SettingsService.SetAsync(
+        //         "access_expiration",
+        //         expiration.ToString("O"));
+
+        //     // Atualiza imediatamente o AuthenticationState.
+        //     // Sem isso, o AuthorizeRouteView ainda enxerga o usuário
+        //     // como anônimo até uma nova avaliação do estado.
+        //     if (AuthStateProvider is ApiAuthenticationStateProvider authProvider)
+        //     {
+        //         authProvider.NotifyUserAuthentication();
+        //     }
+
+        //     Snackbar.Add(
+        //         "Login efetuado com sucesso!",
+        //         Severity.Success);
+
+        //     Navigation.NavigateTo("/");
+        // }
+        // catch (WMW.SDK.Client.Api.V1.Identity.Login.AccessTokenResponse401Error ex)
+        // {
+        //     var messages = new List<string>();
+
+        //     if (!string.IsNullOrWhiteSpace(ex.Detail))
+        //     {
+        //         messages.Add(ex.Detail);
+        //     }
+
+        //     if (ex.AdditionalData is { Count: > 0 })
+        //     {
+        //         foreach (var error in ex.AdditionalData)
+        //         {
+        //             if (error.Key is null || error.Value is null)
+        //                 continue;
+
+        //             if (error.Value is Microsoft.Kiota.Abstractions.Serialization.UntypedString str)
+        //                 messages.Add($"{error.Key}: {str.GetValue()}");
+        //         }
+        //     }
+
+        //     var message = messages.Count > 0
+        //         ? string.Join("\n", messages)
+        //         : "Os dados informados são inválidos.";
+
+        //     Snackbar.Add(string.Concat(ex.Title, "\n", message), Severity.Error, options => { options.SnackbarVariant = Variant.Text; });
+        // }
+        // catch (Microsoft.Kiota.Abstractions.ApiException ex)
+        // {
+        //     var message = ex.ResponseStatusCode switch
+        //     {
+        //         400 => "Os dados informados para o registro são inválidos.",
+        //         401 => "Não autorizado.",
+        //         403 => "O acesso foi negado.",
+        //         409 => "Já existe uma conta com os dados informados.",
+        //         429 => "Muitas tentativas. Aguarde alguns instantes e tente novamente.",
+        //         >= 500 => "O servidor encontrou um erro ao realizar o registro.",
+        //         _ => "Não foi possível realizar o registro."
+        //     };
+
+        //     Snackbar.Add(
+        //         message,
+        //         Severity.Error);
+        // }
+        // catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        // {
+        //     Snackbar.Add(
+        //         "A operação foi cancelada.",
+        //         Severity.Warning);
+        // }
+        // catch (Exception ex)
+        // {
+        //     Snackbar.Add(
+        //         $"Falha ao realizar login: {ex.Message}",
+        //         Severity.Error);
+        // }
+        // finally
+        // {
+        //     _isLoginLoading = false;
+        // }
+    }
+
+    private async Task RegisterAsync(CancellationToken cancellationToken = default)
+    {
+        // Força a validação no clique do botão de registro
+        if (!await ValidateFormAsync())
+            return;
+
+        _isRegisterLoading = true;
+
+        // try
+        // {
+            // var result = await ApiService.RegisterAsync(
+            // new RegisterRequest
+            // {
+            //     Email = _model.Email,
+            //     Password = _model.Password,
+            //     AdditionalData = null
+            // },
+            // cancellationToken);
+
+            // if (result is null)
+            // {
+            //     throw new InvalidOperationException(
+            //     "The registration response was empty.");
+            // }
+
+        //     Snackbar.Add(
+        //     "Registro efetuado com sucesso! Para usar o sistema, primeiro confirme o e-mail informado.",
+        //     Severity.Success);
+        // }
+        // catch (HttpValidationProblemDetails ex)
+        // {
+        //     var messages = new List<string>
+        //     ();
+
+        //     if (!string.IsNullOrWhiteSpace(ex.Detail))
+        //     {
+        //         messages.Add(ex.Detail);
+        //     }
+
+        //     if (ex.Errors?.AdditionalData is { Count: > 0 })
+        //     {
+        //         foreach (var error in ex.Errors.AdditionalData)
+        //         {
+        //             if (error.Value is null)
+        //                 continue;
+
+        //             if (error.Value is Microsoft.Kiota.Abstractions.Serialization.UntypedArray array)
+        //             {
+        //                 var nodes = array.GetValue();
+        //                 foreach (UntypedNode node in nodes)
+        //                 {
+        //                     if (node is Microsoft.Kiota.Abstractions.Serialization.UntypedString _value)
+        //                     {
+        //                         messages.Add($"{error.Key}: {_value.GetValue()}");
+        //                     }
+        //                     else
+        //                     {
+        //                         continue;
+        //                     }
+        //                 }
+        //                 continue;
+        //             }
+        //         }
+        //     }
+
+        //     var message = messages.Count > 0
+        //     ? string.Join(" ", messages)
+        //     : ex.Title ?? "Os dados informados são inválidos.";
+
+        //     Snackbar.Add(message, Severity.Error);
+        // }
+        // catch (Microsoft.Kiota.Abstractions.ApiException ex)
+        // {
+        //     var message = ex.ResponseStatusCode switch
+        //     {
+        //         400 => "Os dados informados para o registro são inválidos.",
+        //         401 => "Não autorizado.",
+        //         403 => "O acesso foi negado.",
+        //         409 => "Já existe uma conta com os dados informados.",
+        //         429 => "Muitas tentativas. Aguarde alguns instantes e tente novamente.",
+        //         >= 500 => "O servidor encontrou um erro ao realizar o registro.",
+        //         _ => "Não foi possível realizar o registro."
+        //     };
+
+        //     Snackbar.Add(
+        //     message,
+        //     Severity.Error);
+        // }
+        // catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        // {
+        //     Snackbar.Add(
+        //     "A operação foi cancelada.",
+        //     Severity.Warning);
+        // }
+        // catch (Exception ex)
+        // {
+        //     Snackbar.Add(
+        //     $"Falha ao realizar o registro: {ex.Message}",
+        //     Severity.Error);
+        // }
+        // finally
+        // {
+        //     _isRegisterLoading = false;
+        // }
+    }
+
+    private void TogglePasswordVisibility()
+    {
+        if (_showPassword)
+        {
+            _showPassword = false;
+            _passwordIcon = Icons.Material.Filled.VisibilityOff;
+            _passwordInputType = InputType.Password;
+        }
+        else
+        {
+            _showPassword = true;
+            _passwordIcon = Icons.Material.Filled.Visibility;
+            _passwordInputType = InputType.Text;
+        }
+    }
+
+    private class UserModel
+    {
+        public string Email { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}
+

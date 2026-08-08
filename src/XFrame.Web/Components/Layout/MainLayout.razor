@@ -1,0 +1,119 @@
+﻿@inherits LayoutComponentBase
+<MudThemeProvider @ref="@_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" Theme="Theme.RoyalBlueTheme " />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+ <MudLayout>
+    <MudAppBar Color="MudColor.Primary" Elevation="1">
+        <MudIconButton Icon="@(_drawerOpen ? Icons.Material.Filled.MenuOpen : Icons.Material.Filled.Menu)" Color="MudColor.Inherit" Edge="Edge.Start" OnClick="@((e) => DrawerToggle())" />
+        <MudText Typo="Typo.h6" Class="ml-2" HtmlTag="b" Color="MudColor.Inherit">@Localizer["ApplicationTitle"]</MudText>
+        <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="MudColor.Inherit"
+                       OnClick="OnToggleDarkModeAsync" />
+
+        <MudMenu Icon="@Icons.Material.Filled.Language" Color="MudColor.Inherit" Dense="true">
+            <MudMenuItem OnClick='() => OnLanguageMenuItemClickAsync("pt-BR")'>Português (BR)</MudMenuItem>
+            <MudMenuItem OnClick='() => OnLanguageMenuItemClickAsync("en-US")'>English (US)</MudMenuItem>
+        </MudMenu>
+
+        <MudMenu Icon="@Icons.Material.Filled.MoreVert" Color="MudColor.Inherit" Dense="true" >
+            <MudMenuItem Icon="@Icons.Material.Filled.Person3" OnClick="Profile">@Localizer["Profile"]</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Filled.Logout" OnClick="Logout">@Localizer["Logout"]</MudMenuItem>
+        </MudMenu>
+    </MudAppBar>
+
+    <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1">
+        <MudNavMenu>
+            <MudList T="MudNavLink">
+                <MudNavLink Icon="@Icons.Material.Filled.Home" IconColor="MudColor.Primary" Href="/" Match="NavLinkMatch.All">
+                    @Localizer["Home"]
+                </MudNavLink>
+                <MudDivider DividerType="DividerType.FullWidth" />
+                <MudNavLink Icon="@Icons.Material.Filled.Work" IconColor="MudColor.Primary" Href="/work" Match="NavLinkMatch.Prefix">
+                    @Localizer["Work"]
+                </MudNavLink>
+                <MudDivider DividerType="DividerType.FullWidth" />
+                <MudNavGroup Icon="@Icons.Material.Filled.Task" IconColor="MudColor.Primary" Expanded="true" Title="@Localizer["Tasks"]">
+                    <ChildContent>
+                        <MudNavLink Icon="@Icons.Custom.Uncategorized.FolderOpen" IconColor="MudColor.Primary" Href="/in-office" Match="NavLinkMatch.Prefix">@Localizer["Projects"]</MudNavLink>
+                        <MudDivider DividerType="DividerType.Middle" />
+                        <MudNavLink Icon="@Icons.Material.Filled.Approval" IconColor="MudColor.Primary" Href="/freelancer" Match="NavLinkMatch.Prefix">@Localizer["Deploys"]</MudNavLink>
+                        <MudDivider DividerType="DividerType.Middle" />
+                        <MudNavLink Icon="@Icons.Material.Filled.Computer" IconColor="MudColor.Primary" Href="/editor" Match="NavLinkMatch.Prefix">@Localizer["Editor"]</MudNavLink>
+                    </ChildContent>
+                </MudNavGroup> 
+            </MudList>
+        </MudNavMenu>
+    </MudDrawer>
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="my-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+@code {
+    private bool _drawerOpen = false;
+    private bool _isDarkMode = false; 
+    private string _language = "pt-BR"; 
+    private MudThemeProvider _mudThemeProvider = default!;
+    private MudTheme _customTheme = new MudTheme();
+
+    protected override async Task OnInitializedAsync()
+    { 
+        // _isDarkMode = await SettingsService.GetAsync<bool>("darkMode");
+        // _language = (await  SettingsService.GetAsync<string>("culture")) ?? "pt-BR";
+        // CultureInfo culture = new(_language);
+        // culture.SetCurrentCulture(_language);
+
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        base.OnAfterRender(firstRender);
+        _isDarkMode = await SettingsService.GetAsync<bool>("darkMode");
+        _language = (await  SettingsService.GetAsync<string>("culture")) ?? "pt-BR";
+        CultureInfo culture = new(_language);
+        culture.SetCurrentCulture(_language);
+    }
+    private async Task ChangeLanguageAsync(string lang)
+    {
+        ToggleLanguage(new CultureInfo(_language = lang));
+        StateHasChanged();
+        await SettingsService.SetAsync<string>("culture", lang);
+    }
+ 
+    private void ToggleLanguage(CultureInfo culture) 
+    {
+        culture.SetCurrentCulture(_language); 
+        Navigation.Refresh(true);
+    } 
+
+    private void DrawerToggle() => _drawerOpen = !_drawerOpen;
+
+    private async Task OnLanguageMenuItemClickAsync(string language) => await ChangeLanguageAsync(_language = language ??= "pt-BR");
+
+    private async Task OnToggleDarkModeAsync() 
+    {
+        _isDarkMode = !_isDarkMode;
+        await SettingsService.SetAsync("darkMode", _isDarkMode);
+        StateHasChanged();
+    }
+ 
+    private async Task Profile() 
+    {
+
+    }
+
+    private async Task Logout()
+    {
+
+    }
+ 
+}
+
+<div id="blazor-error-ui">
+    An unhandled error has occurred.
+    <a href="" class="reload">Reload</a>
+    <a class="dismiss">🗙</a>
+</div>

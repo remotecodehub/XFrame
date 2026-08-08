@@ -1,0 +1,141 @@
+@using Microsoft.AspNetCore.Components.Forms
+@using XFrame.Web.Services.Abstract
+@inject IEditorService EditorState
+@inject IEnumerable<IModelImporter> Importers
+
+<MudDialog>
+    <DialogContent>
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Adicionar modelo 3D</MudText>
+            <MudText Typo="Typo.caption" Color="MudColor.Secondary">O arquivo será mantido somente em memória durante a importação.</MudText>
+
+            <MudPaper Class="pa-3" Outlined="true">
+                <MudStack Spacing="1">
+                    <MudText Typo="Typo.subtitle2">Arquivo</MudText>
+                    <InputFile OnChange="OnFileChanged" accept="@AcceptedExtensions" />
+                    @if (_file is not null)
+                    {
+                        <MudText Typo="Typo.caption">@_file.Name • @FormatBytes(_file.Size) • @(_selectedFormat?.ToUpperInvariant())</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Color="MudColor.Secondary">Formatos disponíveis: @AcceptedExtensions</MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+            @if (string.Equals(_selectedFormat, "obj", StringComparison.OrdinalIgnoreCase))
+            {
+                <MudPaper Class="pa-3" Outlined="true">
+                    <MudStack Spacing="1">
+                        <MudText Typo="Typo.subtitle2">Textura opcional</MudText>
+                        <InputFile OnChange="OnTextureChanged" accept=".png,.jpg,.jpeg" />
+                        @if (_texture is not null) { <MudText Typo="Typo.caption">@_texture.Name • @FormatBytes(_texture.Size)</MudText> }
+                        else { <MudText Typo="Typo.caption" Color="MudColor.Secondary">PNG, JPG ou JPEG</MudText> }
+                    </MudStack>
+                </MudPaper>
+            }
+
+            <MudTextField T="string" Label="Nome" Required="true" RequiredError="Informe o nome do objeto" @bind-Value="_name" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="Código do componente" Required="true" RequiredError="Informe o código do componente" @bind-Value="_componentCode" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudSelect T="ComponentCategory" Label="Categoria" Required="true" @bind-Value="_category" Variant="Variant.Outlined" Margin="Margin.Dense">
+                @foreach (var category in Enum.GetValues<ComponentCategory>()) { <MudSelectItem Value="category">@category</MudSelectItem> }
+            </MudSelect>
+            <MudTextField T="string" Label="Fabricante" @bind-Value="_manufacturer" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="Acabamento" @bind-Value="_finish" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="Material" @bind-Value="_material" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudTextField T="string" Label="Descrição" Lines="2" @bind-Value="_description" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudText Typo="Typo.caption">Dimensões relevantes (mm)</MudText>
+            <MudStack Row="true" Spacing="1">
+                <MudNumericField T="float" Label="X" @bind-Value="_dimensions.X" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudNumericField T="float" Label="Y" @bind-Value="_dimensions.Y" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                <MudNumericField T="float" Label="Z" @bind-Value="_dimensions.Z" Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudStack>
+
+            @if (!string.IsNullOrWhiteSpace(_error)) { <MudAlert Severity="Severity.Error" Dense="true">@_error</MudAlert> }
+            @if (_isImporting) { <MudProgressLinear Indeterminate="true" Color="MudColor.Primary" /> }
+        </MudStack>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="_isImporting">Cancelar</MudButton>
+        <MudButton Color="MudColor.Primary" Variant="Variant.Filled" Disabled="!CanConfirm" OnClick="ImportAsync">Importar modelo</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance DialogInstance { get; set; } = default!;
+
+    private const long MaxFileSize = 25 * 1024 * 1024;
+    private IBrowserFile? _file;
+    private IBrowserFile? _texture;
+    private IModelImporter? _importer;
+    private string? _selectedFormat;
+    private string _name = string.Empty;
+    private string _componentCode = string.Empty;
+    private ComponentCategory _category;
+    private string _manufacturer = string.Empty;
+    private string _finish = string.Empty;
+    private string _material = string.Empty;
+    private string _description = string.Empty;
+    private System.Numerics.Vector3 _dimensions;
+    private string? _error;
+    private bool _isImporting;
+
+    private string AcceptedExtensions => string.Join(',', Importers.Select(x => $".{x.Format.TrimStart('.').ToLowerInvariant()}"));
+    private bool CanConfirm => !_isImporting && _file is not null && _importer is not null && !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_componentCode);
+
+    private async Task OnFileChanged(InputFileChangeEventArgs args)
+    {
+        _error = null;
+        _file = args.File;
+        _selectedFormat = Path.GetExtension(_file.Name).TrimStart('.').ToLowerInvariant();
+        _importer = Importers.FirstOrDefault(x => string.Equals(x.Format.TrimStart('.'), _selectedFormat, StringComparison.OrdinalIgnoreCase));
+        if (_file.Size > MaxFileSize) _error = "O arquivo excede o limite de 25 MB.";
+        else if (_importer is null) _error = $"Formato '.{_selectedFormat}' não suportado pela arquitetura atual.";
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private Task OnTextureChanged(InputFileChangeEventArgs args)
+    {
+        _error = null;
+        _texture = args.File;
+        var extension = Path.GetExtension(_texture.Name).ToLowerInvariant();
+        if (extension is not ".png" and not ".jpg" and not ".jpeg") { _error = "A textura deve estar no formato PNG, JPG ou JPEG."; _texture = null; }
+        else if (_texture.Size > 10 * 1024 * 1024) { _error = "A textura excede o limite de 10 MB."; _texture = null; }
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ImportAsync()
+    {
+        if (!CanConfirm || _file is null || _importer is null) return;
+        _isImporting = true;
+        _error = null;
+        try
+        {
+            await using var source = _file.OpenReadStream(MaxFileSize);
+            var model = await _importer.ImportAsync(source);
+            if (!model.Mesh.IsValid) throw new InvalidDataException("O modelo não possui uma malha renderizável.");
+            TextureSource? texture = null;
+            if (_texture is not null)
+            {
+                await using var textureStream = _texture.OpenReadStream(10 * 1024 * 1024);
+                using var memory = new MemoryStream();
+                await textureStream.CopyToAsync(memory);
+                texture = new TextureSource(_texture.Name, Path.GetExtension(_texture.Name).TrimStart('.').ToLowerInvariant(), memory.ToArray());
+            }
+            var metadata = new ImportedObjectMetadata(_name.Trim(), _componentCode.Trim(), _category, _manufacturer.Trim(), _finish.Trim(), _material.Trim(), _dimensions, _description.Trim(), texture);
+            EditorState.AddImportedObject(model, metadata, _file.Name);
+            DialogInstance.Close(DialogResult.Ok(true));
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _isImporting = false;
+        }
+    }
+
+    private void Cancel() => DialogInstance.Cancel();
+    private static string FormatBytes(long value) => value switch { < 1024 => $"{value} B", < 1024 * 1024 => $"{value / 1024d:0.##} KB", _ => $"{value / 1024d / 1024d:0.##} MB" };
+}

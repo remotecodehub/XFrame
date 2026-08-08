@@ -1,0 +1,68 @@
+﻿@using System.Globalization
+@using XFrame.Web.Extensions
+@inherits LayoutComponentBase
+
+<MudThemeProvider @ref="@_mudThemeProvider" @bind-IsDarkMode="@_isDarkMode" Theme="Theme.RoyalBlueTheme " />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+ <MudLayout>
+    <MudAppBar Color="MudColor.Primary" Elevation="1">
+        <MudMenu Icon="@Icons.Material.Filled.Language" Color="MudColor.Inherit" Dense="true">
+            <MudMenuItem OnClick='() => OnLanguageMenuItemClickAsync("pt-BR")'>Português (BR)</MudMenuItem>
+            <MudMenuItem OnClick='() => OnLanguageMenuItemClickAsync("en-US")'>English (US)</MudMenuItem>
+        </MudMenu>
+
+        <MudSpacer />
+        <MudText Typo="Typo.h6" Class="ml-2" HtmlTag="b" Color="MudColor.Inherit">@Localizer["ApplicationTitle"]</MudText>
+        <MudSpacer />
+
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="MudColor.Inherit"
+                       OnClick="OnToggleDarkModeAsync" />
+    </MudAppBar>
+
+     
+
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.ExtraExtraLarge" Class="my-4">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
+
+@code { 
+    private bool _isDarkMode = false; 
+    private string _language = "pt-BR"; 
+    private MudThemeProvider _mudThemeProvider = default!; 
+
+    protected override async Task OnInitializedAsync()
+    { 
+        _isDarkMode = await SettingsService.GetAsync<bool>("darkMode");
+        _language = (await  SettingsService.GetAsync<string>("culture")) ?? "pt-BR";
+        CultureInfo culture = new(_language);
+        culture.SetCurrentCulture(_language);
+
+    }
+ 
+    private async Task ChangeLanguageAsync(string lang)
+    {
+        ToggleLanguage(new CultureInfo(_language = lang));
+        StateHasChanged();
+        await SettingsService.SetAsync<string>("culture", lang);
+    }
+ 
+    private void ToggleLanguage(CultureInfo culture) 
+    {
+        culture.SetCurrentCulture(_language); 
+        Navigation.Refresh(true);
+    } 
+    private async Task OnLanguageMenuItemClickAsync(string language) => await ChangeLanguageAsync(_language = language ??= "pt-BR");
+
+    private async Task OnToggleDarkModeAsync() 
+    {
+        _isDarkMode = !_isDarkMode;
+        await SettingsService.SetAsync("darkMode", _isDarkMode);
+        StateHasChanged();
+    } 
+}

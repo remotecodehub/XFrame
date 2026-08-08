@@ -1,0 +1,42 @@
+﻿@* @using Microsoft.AspNetCore.Components.Authorization
+<CascadingAuthenticationState>
+    <Router AppAssembly="@typeof(App).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="@routeData" DefaultLayout="@typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <p role="alert">Você não tem permissão para acessar este recurso.</p>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <MudProgressLinear Color="MudColor.Primary" Indeterminate="true" />
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Não Encontrado</PageTitle>
+            <LayoutView Layout="@typeof(Layout.CommonLayout)">
+                <MudContainer Class="d-flex flex-column align-center justify-center min-vh-100">
+                    <MudText Color="MudColor.Error">404</MudText>
+                    <MudText>Página não encontrada.</MudText>
+                    <MudButton Variant="Variant.Filled" Color="MudColor.Primary" Href="/" Class="mt-4">
+                        Voltar para a Home
+                    </MudButton>
+                </MudContainer>
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState> *@
+
+<Router AppAssembly="typeof(Program).Assembly">
+    <Found Context="routeData">
+        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.EditorLayout)" />
+        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+    </Found>
+</Router>
