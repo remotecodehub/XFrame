@@ -8,12 +8,24 @@ let cameraViewCube = null;
 const GIZMO_VISUAL_SCALE = 0.24;
 // Hit area intentionally wider than the visual line for reliable axis selection.
 const GIZMO_HIT_TOLERANCE = 0.14;
-const TRANSLATION_SENSITIVITY = 0.8;
-const ROTATION_SENSITIVITY = 0.35;
+// Tuned sensitivities to reduce jitter and excessive response
+const TRANSLATION_SENSITIVITY = 0.6; // translation scale factor
+const ROTATION_SENSITIVITY = 0.2;    // rotation scale factor (degrees per interaction unit)
 const geometryBuffers = new Map();
 const textureResources = new Map();
 const camera = { target: [0, 0, 0], distance: 6, yaw: 0, pitch: 0.35, fov: Math.PI / 3 };
 const pointer = { left: false, right: false, drag: null, orbit: null };
+// Unified tool controller: single temporary interaction state (non-authoritative)
+const toolController = {
+    activeTool: null,
+    activeObjectId: null,
+    activeAxis: 'None',
+    pointerStart: null,
+    lastPointer: null,
+    dragStartTransform: null,
+    isDragging: false,
+    dragData: null
+};
 
 const shader = `
 struct Uniforms { modelViewProjection: mat4x4<f32>, color: vec4f };
@@ -80,6 +92,7 @@ export async function initialize(id, callback) {
     canvas.addEventListener('pointermove', pointerMove);
     canvas.addEventListener('pointerup', pointerUp);
     canvas.addEventListener('pointercancel', pointerUp);
+    canvas.addEventListener('lostpointercapture', pointerUp);
     canvas.addEventListener('wheel', wheel, { passive: false });
     createCameraViewCube();
     resizeObserver = new ResizeObserver(resize);
@@ -97,12 +110,43 @@ export function resize() {
     render(JSON.stringify(scene));
 }
 
-export function setTool(tool) { interactionTool = tool || 'Select'; gizmoHoverAxis = 'None'; gizmoActiveAxis = 'None'; if (cameraViewCube) cameraViewCube.style.display = interactionTool === 'Camera' ? 'grid' : 'none'; }
+export function setTool(tool) { interactionTool = tool || 'Select'; gizmoHoverAxis = 'None'; gizmoActiveAxis = 'None'; // end any active drag when tool changes
+    pointer.drag = null;
+    // update unified controller
+    toolController.activeTool = interactionTool;
+    toolController.isDragging = false;
+    toolController.activeAxis = 'None';
+    toolController.activeObjectId = null;
+    toolController.dragData = null;
+    if (cameraViewCube) cameraViewCube.style.display = interactionTool === 'Camera' ? 'grid' : 'none'; }
 
 export async function render(json) {
     if (!device || !context || !pipeline || !depthTexture) return;
     const sequence = ++renderSequence;
-    scene = JSON.parse(json);
+    const incoming = JSON.parse(json);
+    // During an active drag session, do not allow an incoming snapshot to overwrite the object currently being edited.
+    if (toolController.isDragging && toolController.activeObjectId && Array.isArray(incoming.Objects)) {
+        // If the selection changed on the server side, cancel the drag and accept the incoming snapshot.
+        if (incoming.SelectedObjectId && incoming.SelectedObjectId !== toolController.activeObjectId) {
+            // Cancel drag: clear controller and accept incoming scene
+            toolController.isDragging = false;
+            toolController.dragData = null;
+            toolController.activeAxis = 'None';
+            toolController.activeObjectId = null;
+            scene = incoming;
+        } else {
+            const id = toolController.activeObjectId;
+            const incomingIndex = incoming.Objects.findIndex(o => o.Id === id);
+            const currentObj = (scene.Objects || []).find(o => o.Id === id);
+            // Accept the incoming scene for all objects, but preserve the preview transform for the active object so the drag is uninterrupted.
+            scene = incoming;
+            if (incomingIndex >= 0 && currentObj) {
+                scene.Objects[incomingIndex].__previewTransform = currentObj.__previewTransform;
+            }
+        }
+    } else {
+        scene = incoming;
+    }
     interactionTool = scene.Tool || interactionTool;
     if (!hasFramed && scene.Objects?.length) { frameScene(); hasFramed = true; }
     const viewProjection = getViewProjection(canvas.width / Math.max(1, canvas.height));
@@ -138,7 +182,7 @@ function renderGizmo(pass, viewProjection) {
     if ((interactionTool !== 'Translate' && interactionTool !== 'Rotate') || !scene.SelectedObjectId || !gizmoPipeline || !gizmoUniform) { hideGizmoLabels(); return; }
     const selected = scene.Objects?.find(object => object.Id === scene.SelectedObjectId);
     if (!selected) { hideGizmoLabels(); return; }
-    const center = vectorValue(selected.Transform?.Position);
+    const center = vectorValue(selected.__previewTransform?.Position ?? selected.Transform?.Position);
     const size = Math.max(camera.distance * GIZMO_VISUAL_SCALE, 0.01);
     const arrow = size * 0.12;
     const xEnd = [center[0] + size, center[1], center[2]], yEnd = [center[0], center[1] + size, center[2]], zEnd = [center[0], center[1], center[2] + size];
@@ -230,7 +274,7 @@ async function getTextureResource(object) {
 
 export function dispose() {
     resizeObserver?.disconnect(); resizeObserver = null;
-    canvas?.removeEventListener('contextmenu', preventContextMenu); canvas?.removeEventListener('pointerdown', pointerDown); canvas?.removeEventListener('pointermove', pointerMove); canvas?.removeEventListener('pointerup', pointerUp); canvas?.removeEventListener('pointercancel', pointerUp); canvas?.removeEventListener('wheel', wheel);
+    canvas?.removeEventListener('contextmenu', preventContextMenu); canvas?.removeEventListener('pointerdown', pointerDown); canvas?.removeEventListener('pointermove', pointerMove); canvas?.removeEventListener('pointerup', pointerUp); canvas?.removeEventListener('pointercancel', pointerUp); canvas?.removeEventListener('lostpointercapture', pointerUp); canvas?.removeEventListener('wheel', wheel);
     for (const resources of geometryBuffers.values()) { resources.vertex.destroy(); resources.index.destroy(); resources.uniform.destroy(); }
     geometryBuffers.clear(); depthTexture?.destroy(); depthTexture = null;
     for (const resource of textureResources.values()) resource.texture.destroy();
@@ -243,64 +287,169 @@ export function dispose() {
 }
 
 function pointerDown(event) {
-    canvas.setPointerCapture(event.pointerId);
-    if (event.button === 2) { pointer.right = true; pointer.orbit = { x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch }; return; }
-    if (event.button !== 0) return;
+    try { canvas.setPointerCapture(event.pointerId); } catch (e) { /* ignore if capture fails */ }
+    if (event.button === 2) { // right button => camera orbit
+        pointer.right = true; pointer.orbit = { x: event.clientX, y: event.clientY, yaw: camera.yaw, pitch: camera.pitch }; return; }
+    if (event.button !== 0) return; // only left button for interactions
     pointer.left = true;
+    toolController.lastPointer = { x: event.clientX, y: event.clientY };
+    toolController.pointerStart = { x: event.offsetX, y: event.offsetY };
+    toolController.activeTool = interactionTool;
+
+    // SELECT tool: pick object under cursor
     if (interactionTool === 'Select') {
         const hit = pick(event.offsetX, event.offsetY);
         if (hit) dotnet?.invokeMethodAsync('OnObjectPicked', hit.Id);
         return;
     }
+    // Camera tool does not start object drags
     if (interactionTool === 'Camera') return;
+
+    // Only operate on the currently selected object in hierarchy
     const selected = scene.Objects?.find(object => object.Id === scene.SelectedObjectId);
     if (!selected) return;
+
+    // Determine axis from gizmo hit - axis must be unique
     const axis = gizmoAxisHit(event.offsetX, event.offsetY);
     if (axis === 'None') return;
+
     const position = vectorValue(selected.Transform?.Position);
     const rotation = vectorValue(selected.Transform?.Rotation);
     const axisDirection = axisVector(axis);
     const planeNormal = interactionTool === 'Rotate' ? axisDirection : translationPlaneNormal(axisDirection);
     const startPoint = rayPlaneIntersection(event.offsetX, event.offsetY, position, planeNormal);
     if (!startPoint) return;
+
     const startVector = subtract(startPoint, position);
+
+    // initialize controller drag data (immutable snapshot references just for reference)
+    toolController.activeAxis = axis;
+    toolController.activeObjectId = selected.Id;
+    const scale = vectorValue(selected.Transform?.Scale, [1,1,1]);
+    toolController.dragStartTransform = { Position: [...position], Rotation: [...rotation], Scale: [...scale] };
+    toolController.isDragging = true;
+    toolController.dragData = { axis, axisDirection, original: position, rotation, tool: interactionTool, startPoint, startVector, planeNormal };
+    // also keep legacy pointer.drag for minimal compatibility
+    pointer.drag = toolController.dragData;
     gizmoActiveAxis = axis;
-    pointer.drag = { id: selected.Id, axis, axisDirection, original: position, rotation, tool: interactionTool, startPoint, startVector, planeNormal };
+    // render preview based on same scene state
     render(JSON.stringify(scene));
 }
 function pointerMove(event) {
+    // Camera orbit
     if (pointer.right && pointer.orbit) {
         camera.yaw = pointer.orbit.yaw - (event.clientX - pointer.orbit.x) * 0.01;
         camera.pitch = clamp(pointer.orbit.pitch - (event.clientY - pointer.orbit.y) * 0.01, -1.45, 1.45);
         render(JSON.stringify(scene)); return;
     }
-    if (!pointer.left || !pointer.drag) {
+
+    // Hover detection when not dragging
+    if (!pointer.left || !toolController.isDragging || !toolController.dragData) {
         const nextHover = (interactionTool !== 'Translate' && interactionTool !== 'Rotate') || !scene.SelectedObjectId ? 'None' : gizmoAxisHit(event.offsetX, event.offsetY);
         if (nextHover !== gizmoHoverAxis) { gizmoHoverAxis = nextHover; render(JSON.stringify(scene)); }
         return;
     }
-    const object = scene.Objects?.find(x => x.Id === pointer.drag.id);
+
+    // Ensure we operate only on the active object
+    const object = scene.Objects?.find(x => x.Id === toolController.activeObjectId);
     if (!object) return;
-    let position = [...pointer.drag.original], rotation = [...pointer.drag.rotation];
-    if (pointer.drag.tool === 'Translate') {
-        const current = rayPlaneIntersection(event.offsetX, event.offsetY, pointer.drag.original, pointer.drag.planeNormal);
+
+    const d = toolController.dragData;
+    let position = [...d.original], rotation = [...d.rotation];
+
+    if (d.tool === 'Translate') {
+        const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal);
         if (!current) return;
-        const distance = dot(subtract(current, pointer.drag.startPoint), pointer.drag.axisDirection);
-        position = add(pointer.drag.original, multiply(pointer.drag.axisDirection, distance * TRANSLATION_SENSITIVITY));
-    } else if (pointer.drag.tool === 'Rotate') {
-        const current = rayPlaneIntersection(event.offsetX, event.offsetY, pointer.drag.original, pointer.drag.planeNormal);
+        const distance = dot(subtract(current, d.startPoint), d.axisDirection);
+        position = add(d.original, multiply(d.axisDirection, distance * TRANSLATION_SENSITIVITY));
+    } else if (d.tool === 'Rotate') {
+        const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal);
         if (!current) return;
-        const currentVector = subtract(current, pointer.drag.original);
-        if (Math.hypot(...pointer.drag.startVector) > 0.00001 && Math.hypot(...currentVector) > 0.00001) {
-            const angle = Math.atan2(dot(pointer.drag.axisDirection, cross(pointer.drag.startVector, currentVector)), dot(pointer.drag.startVector, currentVector)) * 180 / Math.PI * ROTATION_SENSITIVITY;
-            rotation[axisIndex(pointer.drag.axis)] = pointer.drag.rotation[axisIndex(pointer.drag.axis)] + angle;
+        const currentVector = subtract(current, d.original);
+        if (Math.hypot(...d.startVector) > 0.00001 && Math.hypot(...currentVector) > 0.00001) {
+            const angle = Math.atan2(dot(d.axisDirection, cross(d.startVector, currentVector)), dot(d.startVector, currentVector)) * 180 / Math.PI * ROTATION_SENSITIVITY;
+            rotation[axisIndex(d.axis)] = d.rotation[axisIndex(d.axis)] + angle;
         }
     }
-    // O JavaScript calcula apenas a interação. O Transform persistente é atualizado
-    // pelo EditorService no callback e volta ao runtime na próxima renderização.
-    dotnet?.invokeMethodAsync('OnTransformChanged', object.Id, pointer.drag.axis, position[0], position[1], position[2], rotation[0], rotation[1], rotation[2]);
+
+    // Update transient preview only
+    object.__previewTransform = object.__previewTransform || {};
+    object.__previewTransform.Position = { X: position[0], Y: position[1], Z: position[2] };
+    object.__previewTransform.Rotation = { X: rotation[0], Y: rotation[1], Z: rotation[2] };
+
+    // Render immediate preview
+    render(JSON.stringify(scene));
+
+    // Compute deltas relative to drag start and send to .NET (authoritative)
+    // No round-trip to .NET during drag. Preview only. Commit will be sent on pointerUp.
+    // const deltaPos = subtract(position, d.original);
+    // const deltaRot = subtract(rotation, d.rotation);
+
 }
-function pointerUp(event) { pointer.left = false; pointer.right = false; pointer.drag = null; pointer.orbit = null; gizmoActiveAxis = 'None'; render(JSON.stringify(scene)); if (canvas?.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); }
+function pointerUp(event) { 
+    // Stop dragging / orbiting;
+    pointer.left = false;
+    pointer.right = false;
+    pointer.orbit = null;
+
+    // If there is an active drag session, compute final absolute transform and commit
+    if (toolController.isDragging && toolController.dragData && toolController.activeObjectId) {
+        const d = toolController.dragData;
+        const object = scene.Objects?.find(x => x.Id === toolController.activeObjectId);
+        if (object) {
+            // Compute final transform using StartTransform + current interaction
+            const start = toolController.dragStartTransform; // { Position: [...], Rotation: [...], Scale: [...] }
+            let finalPos = [...start.Position];
+            let finalRot = [...start.Rotation];
+            let finalScale = [...start.Scale ?? [1,1,1]];
+
+            if (d.tool === 'Translate') {
+                const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal) || d.startPoint;
+                const distance = dot(subtract(current, d.startPoint), d.axisDirection);
+                finalPos = add(d.original, multiply(d.axisDirection, distance * TRANSLATION_SENSITIVITY));
+            } else if (d.tool === 'Rotate') {
+                const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal) || d.startPoint;
+                const currentVector = subtract(current, d.original);
+                if (Math.hypot(...d.startVector) > 0.00001 && Math.hypot(...currentVector) > 0.00001) {
+                    const angle = Math.atan2(dot(d.axisDirection, cross(d.startVector, currentVector)), dot(d.startVector, currentVector)) * 180 / Math.PI * ROTATION_SENSITIVITY;
+                    finalRot = [...start.Rotation];
+                    finalRot[axisIndex(d.axis)] = start.Rotation[axisIndex(d.axis)] + angle;
+                }
+            }
+
+            // Send commit to .NET as absolute transform (Scale preserved)
+            const [px, py, pz] = finalPos;
+            const [rx, ry, rz] = finalRot;
+            const [sx, sy, sz] = finalScale;
+            // Invoke the committed transform on the .NET runtime callbacks
+            dotnet?.invokeMethodAsync('OnTransformCommitted', object.Id, px, py, pz, rx, ry, rz, sx, sy, sz);
+        }
+    }
+
+    // End unified drag if present
+    if (toolController.isDragging) {
+        toolController.isDragging = false;
+        toolController.dragData = null;
+        toolController.activeAxis = 'None';
+        toolController.activeObjectId = null;
+        toolController.dragStartTransform = null;
+    }
+
+    // Clear legacy pointer.drag
+    pointer.drag = null;
+
+    // Remove transient previews to avoid stale visuals
+    for (const o of scene.Objects || []) delete o.__previewTransform;
+
+    gizmoActiveAxis = 'None';
+    hideGizmoLabels();
+    try {
+        if (canvas?.hasPointerCapture && canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+    } catch (e) {
+        // ignore
+    }
+    // Do NOT call render(JSON.stringify(scene)) here — rely on .NET to push the authoritative scene back.
+}
 function wheel(event) { event.preventDefault(); camera.distance = clamp(camera.distance * Math.exp(event.deltaY * 0.001), 0.01, 100000); render(JSON.stringify(scene)); }
 function preventContextMenu(event) { event.preventDefault(); }
 
@@ -309,29 +458,70 @@ function createCameraViewCube() {
     cameraViewCube = document.createElement('div');
     cameraViewCube.className = 'xframe-camera-view-cube';
     cameraViewCube.style.cssText = 'position:absolute;top:56px;left:50%;transform:translateX(-50%) perspective(260px) rotateX(-8deg) rotateY(-12deg);transform-origin:center;display:none;grid-template-columns:repeat(3,34px);grid-template-rows:repeat(4,30px);gap:3px;padding:7px;border-radius:8px;background:rgba(20,24,32,.88);border:1px solid rgba(255,255,255,.3);z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.35);';
-    const faces = [['Top', 1, 0], ['Front', 1, 1], ['Left', 0, 1], ['Right', 2, 1], ['Back', 1, 2], ['Bottom', 1, 3]];
-    for (const [label, column, row] of faces) {
+     
+    const faces = [
+        // Linha 1 (row 0)
+        ['ISO TFL', 0, 0, 'ISO_TFL'],
+        ['Top', 1, 0, 'Top'],
+        ['ISO TFR', 2, 0, 'ISO_TFR'],
+        // Linha 2 (row 1)
+        ['Left', 0, 1, 'Left'],
+        ['Front', 1, 1, 'Front'],
+        ['Right', 2, 1, 'Right'],
+        // Linha 3 (row 2)
+        ['ISO TBL', 0, 2, 'ISO_TBL'],
+        ['Back', 1, 2, 'Back'],
+        ['ISO TBR', 2, 2, 'ISO_TBR'],
+        // Linha 4 (row 3)
+        ['Bottom', 1, 3, 'Bottom']
+    ];
+
+    for (const [label, column, row, viewName] of faces) {
         const button = document.createElement('button');
-        button.type = 'button'; button.textContent = label; button.title = `Vista ${label}`;
-        button.style.cssText = `grid-column:${column + 1};grid-row:${row + 1};min-width:34px;min-height:30px;padding:2px;border:1px solid rgba(255,255,255,.35);border-radius:4px;background:#334155;color:#fff;font:600 9px sans-serif;cursor:pointer;`;
-        button.addEventListener('pointerdown', event => { event.preventDefault(); event.stopPropagation(); setCameraView(label); });
+        button.type = 'button';
+        button.textContent = label;
+        button.title = `Vista ${label}`;
+        button.style.cssText = `grid-column:${column + 1};grid-row:${row + 1};min-width:34px;min-height:30px;padding:2px;border:1px solid rgba(255,255,255,.35);border-radius:4px;background:#334155;color:#fff;font:600 8px sans-serif;cursor:pointer;`;
+
+        button.addEventListener('pointerdown', event => {
+            event.preventDefault();
+            event.stopPropagation();
+            setCameraView(viewName);
+        });
+
         cameraViewCube.appendChild(button);
     }
+
     canvas.parentElement.appendChild(cameraViewCube);
 }
 
 function setCameraView(view) {
-    const direction = view === 'Front' ? [0, 0, -1] : view === 'Back' ? [0, 0, 1] : view === 'Right' ? [1, 0, 0] : view === 'Left' ? [-1, 0, 0] : view === 'Top' ? [0, 1, 0] : [0, -1, 0];
+    // Map simple faces and isometric presets to deterministic direction vectors
+    let direction = null;
+    if (view === 'Front') direction = [0, 0, -1];
+    else if (view === 'Back') direction = [0, 0, 1];
+    else if (view === 'Right') direction = [1, 0, 0];
+    else if (view === 'Left') direction = [-1, 0, 0];
+    else if (view === 'Top') direction = [0, 1, 0];
+    else if (view === 'Bottom') direction = [0, -1, 0];
+    else if (view === 'ISO_TFR') direction = normalize([1, 1, -1]); // top + front + right
+    else if (view === 'ISO_TFL') direction = normalize([-1, 1, -1]); // top + front + left
+    else if (view === 'ISO_TBR') direction = normalize([1, 1, 1]); // top + back + right
+    else if (view === 'ISO_TBL') direction = normalize([-1, 1, 1]); // top + back + left
+    if (!direction) return;
+    // compute yaw/pitch consistent with getCameraPosition / lookAt usage
     const horizontalLength = Math.hypot(direction[0], direction[1]) || 1;
     camera.yaw = Math.atan2(direction[0], direction[1]);
     camera.pitch = Math.atan2(direction[2], horizontalLength);
+    // Keep distance but ensure object remains framed: small adjustment if too close
+    camera.distance = Math.max(camera.distance, 2.5);
     render(JSON.stringify(scene));
 }
 
 function pick(x, y) {
     let best = null, bestDistance = 36;
     for (const object of scene.Objects || []) {
-        const screen = project(vectorValue(object.Transform?.Position));
+        const screen = project(vectorValue(object.__previewTransform?.Position ?? object.Transform?.Position));
         if (!screen) continue;
         const distance = Math.hypot(screen[0] - x, screen[1] - y);
         if (distance < bestDistance) { best = object; bestDistance = distance; }
@@ -397,7 +587,7 @@ function screenToPlane(x, y, planeZ) {
     if (Math.abs(ray[2]) < 0.00001) return null;
     const distance = (planeZ - position[2]) / ray[2]; return distance < 0 ? null : add(position, multiply(ray, distance));
 }
-function getObjectViewProjection(object, viewProjection) { return multiplyMatrix(viewProjection, modelMatrix(object.Transform)); }
+function getObjectViewProjection(object, viewProjection) { return multiplyMatrix(viewProjection, modelMatrix(object.__previewTransform ?? object.Transform)); }
 function modelMatrix(transform) { const s = vectorValue(transform?.Scale, [1, 1, 1]), r = vectorValue(transform?.Rotation), p = vectorValue(transform?.Position); return multiplyMatrix(translation(p), multiplyMatrix(rotationZ(r[2]), multiplyMatrix(rotationY(r[1]), multiplyMatrix(rotationX(r[0]), scaling(s))))); }
 function project(point) { const clip = multiplyPoint(getViewProjection(canvas.clientWidth / Math.max(1, canvas.clientHeight)), point); if (clip[3] <= 0) return null; return [(clip[0] / clip[3] * 0.5 + 0.5) * canvas.clientWidth, (1 - (clip[1] / clip[3] * 0.5 + 0.5)) * canvas.clientHeight]; }
 function getCameraPosition() { const cp = Math.cos(camera.pitch); return [camera.target[0] + camera.distance * cp * Math.sin(camera.yaw), camera.target[1] + camera.distance * cp * Math.cos(camera.yaw), camera.target[2] + camera.distance * Math.sin(camera.pitch)]; }

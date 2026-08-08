@@ -4,7 +4,7 @@ public interface IEditor3dRuntime : IAsyncDisposable
 {
     bool IsInitialized { get; }
     event EventHandler<RuntimeObjectPickedEventArgs>? ObjectPicked;
-    event EventHandler<RuntimeTransformChangedEventArgs>? TransformChanged;
+    event EventHandler<RuntimeTransformCommittedEventArgs>? TransformCommitted;
     Task InitializeAsync(string canvasId, CancellationToken cancellationToken = default);
     Task SetInteractionModeAsync(EditorTool tool, CancellationToken cancellationToken = default);
     Task RenderAsync(IReadOnlyCollection<RuntimeSceneObject> objects, Guid? selectedObjectId = null, EditorTool tool = EditorTool.Select, CancellationToken cancellationToken = default);
@@ -25,12 +25,11 @@ public sealed class RuntimeObjectPickedEventArgs(Guid objectId) : EventArgs
     public Guid ObjectId { get; } = objectId;
 }
 
-public sealed class RuntimeTransformChangedEventArgs(Guid objectId, TransformAxis axis, System.Numerics.Vector3 position, System.Numerics.Vector3 rotation) : EventArgs
+public sealed class RuntimeTransformCommittedEventArgs(Guid objectId, EditorTransform transform) : EventArgs
 {
     public Guid ObjectId { get; } = objectId;
-    public TransformAxis Axis { get; } = axis;
-    public System.Numerics.Vector3 Position { get; } = position;
-    public System.Numerics.Vector3 Rotation { get; } = rotation;
+    // The transform is absolute and must replace the EditorObject.Transform when committed.
+    public EditorTransform Transform { get; } = transform;
 }
 
 public sealed record RuntimeMesh(float[] Positions, uint[] Indices, float[]? Uvs = null)

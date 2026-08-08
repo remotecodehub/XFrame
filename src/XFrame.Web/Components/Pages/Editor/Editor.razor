@@ -28,8 +28,8 @@
                     <MudText Typo="Typo.h6">Viewport 3D</MudText>
                 }
                 <MudText Typo="Typo.body2" Color="MudColor.Secondary">WebGPU • @EditorState.Objects.Count objetos na cena</MudText>
-            <MudText Typo="Typo.caption" Color="MudColor.Secondary">A seleção continua sendo controlada pela hierarquia.</MudText>
-        </MudStack>
+                <MudText Typo="Typo.caption" Color="MudColor.Secondary">A seleção continua sendo controlada pela hierarquia.</MudText>
+            </MudStack>
         }
         @if (EditorState.SelectedObject is { Geometry: not null } selected)
         {
@@ -100,20 +100,20 @@
             }
         </MudCollapse>
     </MudPaper>
-</MudStack> 
+</MudStack>
 
 @code {
     bool _expanded = true;
     private readonly SemaphoreSlim _renderGate = new(1, 1);
     private long _renderRequestVersion;
-    private bool _runtimeBusy; 
+    private bool _runtimeBusy;
     private IReadOnlyCollection<JsKeyModifier> _selectedKeyModifiers = [JsKeyModifier.ControlLeft];
 
     protected override void OnInitialized()
     {
         EditorState.StateChanged += OnEditorStateChanged;
         Runtime3d.ObjectPicked += OnRuntimeObjectPicked;
-        Runtime3d.TransformChanged += OnRuntimeTransformChanged;
+        Runtime3d.TransformCommitted += OnRuntimeTransformCommitted;
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -179,14 +179,16 @@
     private Task SetRotation(EditorObject item, float x, float y, float z) { item.Transform.Rotation = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
     private void RemoveSelected() { if (EditorState.SelectedObject is { } item) EditorState.RemoveObject(item.Id); }
     private void OnRuntimeObjectPicked(object? sender, RuntimeObjectPickedEventArgs args) => EditorState.SelectObject(args.ObjectId);
-    private void OnRuntimeTransformChanged(object? sender, RuntimeTransformChangedEventArgs args)
+    private void OnRuntimeTransformCommitted(object? sender, RuntimeTransformCommittedEventArgs args) => InvokeAsync(() =>
     {
         var item = EditorState.Objects.FirstOrDefault(x => x.Id == args.ObjectId);
         if (item is null || EditorState.SelectedObject?.Id != args.ObjectId) return;
-        item.Transform.Position = args.Position;
-        item.Transform.Rotation = args.Rotation;
+        // Replace the object's transform with the committed absolute transform from the runtime.
+        item.Transform.Position = args.Transform.Position;
+        item.Transform.Rotation = args.Transform.Rotation;
+        item.Transform.Scale = args.Transform.Scale;
         EditorState.UpdateObject(item);
-    }
+    });
     private static string FormatMeasurement(float value) => $"{value:0.##}";
     private static System.Numerics.Vector3 GetMeasuredDimensions(EditorObject item)
     {
@@ -203,14 +205,14 @@
     {
         _expanded = !_expanded;
     }
+
     
  
-
     public void Dispose()
     {
         EditorState.StateChanged -= OnEditorStateChanged;
         Runtime3d.ObjectPicked -= OnRuntimeObjectPicked;
-        Runtime3d.TransformChanged -= OnRuntimeTransformChanged;
+        Runtime3d.TransformCommitted -= OnRuntimeTransformCommitted;
         _renderGate.Dispose();
     }
 }
@@ -231,9 +233,9 @@
     .viewport {
         position: relative;
         /*
-                 * Ocupa todo o espaço disponibilizado pelo EditorLayout,
-                 * respeitando automaticamente o drawer e a appbar.
-                 */
+                     * Ocupa todo o espaço disponibilizado pelo EditorLayout,
+                     * respeitando automaticamente o drawer e a appbar.
+                     */
         flex: 1 1 auto;
         width: 100%;
         height: 100%;
@@ -248,9 +250,9 @@
 
     .runtime-canvas {
         /*
-                 * O canvas continua ocupando o viewport inteiro.
-                 * Não altera sua escala/tamanho original.
-                 */
+                     * O canvas continua ocupando o viewport inteiro.
+                     * Não altera sua escala/tamanho original.
+                     */
         display: block;
         width: 100%;
         height: 100%;

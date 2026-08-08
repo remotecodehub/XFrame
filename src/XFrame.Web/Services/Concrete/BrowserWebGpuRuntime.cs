@@ -12,7 +12,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
     private string? _canvasId;
     public bool IsInitialized { get; private set; }
     public event EventHandler<RuntimeObjectPickedEventArgs>? ObjectPicked;
-    public event EventHandler<RuntimeTransformChangedEventArgs>? TransformChanged;
+    public event EventHandler<RuntimeTransformCommittedEventArgs>? TransformCommitted;
 
     public async Task InitializeAsync(string canvasId, CancellationToken cancellationToken = default)
     {
@@ -84,7 +84,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
     }
 
     private void RaisePicked(Guid id) => ObjectPicked?.Invoke(this, new RuntimeObjectPickedEventArgs(id));
-    private void RaiseTransformChanged(Guid id, TransformAxis axis, Vector3 position, Vector3 rotation) => TransformChanged?.Invoke(this, new RuntimeTransformChangedEventArgs(id, axis, position, rotation));
+    private void RaiseTransformCommitted(Guid id, EditorTransform transform) => TransformCommitted?.Invoke(this, new RuntimeTransformCommittedEventArgs(id, transform));
 
     private sealed class RuntimeCallbacks(BrowserWebGpuRuntime owner)
     {
@@ -95,9 +95,18 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
         }
 
         [JSInvokable]
-        public void OnTransformChanged(string objectId, string axis, float px, float py, float pz, float rx, float ry, float rz)
+        public void OnTransformCommitted(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
-            if (Guid.TryParse(objectId, out var id) && Enum.TryParse<TransformAxis>(axis, true, out var selectedAxis)) owner.RaiseTransformChanged(id, selectedAxis, new Vector3(px, py, pz), new Vector3(rx, ry, rz));
+            if (Guid.TryParse(objectId, out var id))
+            {
+                var transform = new EditorTransform
+                {
+                    Position = new System.Numerics.Vector3(px, py, pz),
+                    Rotation = new System.Numerics.Vector3(rx, ry, rz),
+                    Scale = new System.Numerics.Vector3(sx, sy, sz)
+                };
+                owner.RaiseTransformCommitted(id, transform);
+            }
         }
     }
 }
