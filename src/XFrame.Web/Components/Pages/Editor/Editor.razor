@@ -49,7 +49,6 @@
             }
             <MudButton OnClick="OnExpandCollapseClick">@(_expanded ? "Collapse" : "Expand")</MudButton>
         </MudStack>
-
         <MudDivider Class="mb-3" />
         <MudCollapse Expanded="_expanded">
             @if (EditorState.SelectedObject is { } item)
@@ -107,7 +106,6 @@
     private readonly SemaphoreSlim _renderGate = new(1, 1);
     private long _renderRequestVersion;
     private bool _runtimeBusy;
-    private IReadOnlyCollection<JsKeyModifier> _selectedKeyModifiers = [JsKeyModifier.ControlLeft];
 
     protected override void OnInitialized()
     {
@@ -130,221 +128,44 @@
             await InvokeAsync(() => Snackbar.Add(exception.Message, Severity.Warning));
         }
     }
-
-    private void OnEditorStateChanged(object? sender, EventArgs e) => InvokeAsync(async () =>
-    {
-        StateHasChanged();
-        await RequestRenderAsync();
-    });
-
+    private void OnEditorStateChanged(object? sender, EventArgs e) => InvokeAsync(async () => { StateHasChanged(); await RequestRenderAsync(); });
     private async Task RequestRenderAsync()
     {
-        var requestVersion = Interlocked.Increment(ref _renderRequestVersion);
-        _runtimeBusy = true;
-        await InvokeAsync(StateHasChanged);
+        var requestVersion=Interlocked.Increment(ref _renderRequestVersion);
+        _runtimeBusy=true;
         await _renderGate.WaitAsync();
         try
         {
-            // Uma solicitação antiga não deve renderizar um snapshot obsoleto.
-            if (requestVersion != Volatile.Read(ref _renderRequestVersion)) return;
-            do
+            while (true)
             {
-                var version = Volatile.Read(ref _renderRequestVersion);
-                var snapshot = EditorState.Objects.Select(ToRuntimeObject).ToArray();
+                var version=Volatile.Read(ref _renderRequestVersion);
+                var snapshot=EditorState.Objects.Select(ToRuntimeObject).ToArray();
                 await Runtime3d.SetInteractionModeAsync(EditorState.ActiveTool);
-                await Runtime3d.RenderAsync(snapshot, EditorState.SelectedObject?.Id, EditorState.ActiveTool);
-                if (version == Volatile.Read(ref _renderRequestVersion)) break;
-            } while (true);
+                await Runtime3d.RenderAsync(snapshot,EditorState.SelectedObject?.Id,EditorState.ActiveTool);
+                if (version==Volatile.Read(ref _renderRequestVersion)) break;
+            }
         }
         finally
         {
             _renderGate.Release();
-            if (requestVersion == Volatile.Read(ref _renderRequestVersion))
-            {
-                _runtimeBusy = false;
-                await InvokeAsync(StateHasChanged);
-            }
+            if(requestVersion==Volatile.Read(ref _renderRequestVersion)){_runtimeBusy=false;await InvokeAsync(StateHasChanged);}
         }
     }
     private static RuntimeSceneObject ToRuntimeObject(EditorObject item)
     {
-        if (item.Geometry?.Positions is not { Length: > 0 } positions || item.Geometry.Indices is not { Length: > 0 } indices)
-            throw new InvalidOperationException("O objeto não possui geometria importada.");
-        return new RuntimeSceneObject(item.Id, item.Name, item.Category, item.Transform, new RuntimeMesh(positions, indices, item.Geometry.Uvs), item.Geometry.Bounds, item.Material);
+        if(item.Geometry?.Positions is not { Length: > 0 } positions||item.Geometry.Indices is not { Length: > 0 } indices) throw new InvalidOperationException("O objeto não possui geometria importada.");
+        return new RuntimeSceneObject(item.Id,item.Name,item.Category,item.Transform,new RuntimeMesh(positions,indices,item.Geometry.Uvs),item.Geometry.Bounds,item.Material);
     }
     private void NotifyChanged(FocusEventArgs _) => EditorState.UpdateObject(EditorState.SelectedObject!);
-    private Task SetDimensions(EditorObject item, float x, float y, float z) { item.Dimensions = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
-    private Task SetPosition(EditorObject item, float x, float y, float z) { item.Transform.Position = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
-    private Task SetScale(EditorObject item, float x, float y, float z) { item.Transform.Scale = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
-    private Task SetRotation(EditorObject item, float x, float y, float z) { item.Transform.Rotation = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
-    private void RemoveSelected() { if (EditorState.SelectedObject is { } item) EditorState.RemoveObject(item.Id); }
-    private void OnRuntimeObjectPicked(object? sender, RuntimeObjectPickedEventArgs args) => EditorState.SelectObject(args.ObjectId);
-    private void OnRuntimeTransformCommitted(object? sender, RuntimeTransformCommittedEventArgs args) => InvokeAsync(() =>
-    {
-        var item = EditorState.Objects.FirstOrDefault(x => x.Id == args.ObjectId);
-        if (item is null || EditorState.SelectedObject?.Id != args.ObjectId) return;
-        // Replace the object's transform with the committed absolute transform from the runtime.
-        item.Transform.Position = args.Transform.Position;
-        item.Transform.Rotation = args.Transform.Rotation;
-        item.Transform.Scale = args.Transform.Scale;
-        EditorState.UpdateObject(item);
-    });
-    private static string FormatMeasurement(float value) => $"{value:0.##}";
-    private static System.Numerics.Vector3 GetMeasuredDimensions(EditorObject item)
-    {
-        var bounds = item.Geometry!.Bounds * new System.Numerics.Vector3(MathF.Abs(item.Transform.Scale.X), MathF.Abs(item.Transform.Scale.Y), MathF.Abs(item.Transform.Scale.Z));
-        var rotation = item.Transform.Rotation * (MathF.PI / 180f);
-        var matrix = System.Numerics.Matrix4x4.CreateFromYawPitchRoll(rotation.Y, rotation.X, rotation.Z);
-        return new System.Numerics.Vector3(
-            MathF.Abs(matrix.M11) * bounds.X + MathF.Abs(matrix.M12) * bounds.Y + MathF.Abs(matrix.M13) * bounds.Z,
-            MathF.Abs(matrix.M21) * bounds.X + MathF.Abs(matrix.M22) * bounds.Y + MathF.Abs(matrix.M23) * bounds.Z,
-            MathF.Abs(matrix.M31) * bounds.X + MathF.Abs(matrix.M32) * bounds.Y + MathF.Abs(matrix.M33) * bounds.Z);
-    }
-
-    private void OnExpandCollapseClick()
-    {
-        _expanded = !_expanded;
-    }
-
-    
- 
-    public void Dispose()
-    {
-        EditorState.StateChanged -= OnEditorStateChanged;
-        Runtime3d.ObjectPicked -= OnRuntimeObjectPicked;
-        Runtime3d.TransformCommitted -= OnRuntimeTransformCommitted;
-        _renderGate.Dispose();
-    }
+    private Task SetDimensions(EditorObject item,float x,float y,float z){item.Dimensions=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
+    private Task SetPosition(EditorObject item,float x,float y,float z){item.Transform.Position=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
+    private Task SetScale(EditorObject item,float x,float y,float z){item.Transform.Scale=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
+    private Task SetRotation(EditorObject item,float x,float y,float z){item.Transform.Rotation=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
+    private void RemoveSelected(){if(EditorState.SelectedObject is { } item)EditorState.RemoveObject(item.Id);}
+    private void OnRuntimeObjectPicked(object? sender,RuntimeObjectPickedEventArgs args)=>EditorState.SelectObject(args.ObjectId);
+    private void OnRuntimeTransformCommitted(object? sender,RuntimeTransformCommittedEventArgs args)=>InvokeAsync(()=>{var item=EditorState.Objects.FirstOrDefault(x=>x.Id==args.ObjectId);if(item is null)return;item.Transform.Position=args.Transform.Position;item.Transform.Rotation=args.Transform.Rotation;item.Transform.Scale=args.Transform.Scale;EditorState.UpdateObject(item);});
+    private static string FormatMeasurement(float value)=>$"{value:0.##}";
+    private static System.Numerics.Vector3 GetMeasuredDimensions(EditorObject item){var bounds=item.Geometry!.Bounds*new System.Numerics.Vector3(MathF.Abs(item.Transform.Scale.X),MathF.Abs(item.Transform.Scale.Y),MathF.Abs(item.Transform.Scale.Z));var rotation=item.Transform.Rotation*(MathF.PI/180f);var matrix=System.Numerics.Matrix4x4.CreateFromYawPitchRoll(rotation.Y,rotation.X,rotation.Z);return new System.Numerics.Vector3(MathF.Abs(matrix.M11)*bounds.X+MathF.Abs(matrix.M12)*bounds.Y+MathF.Abs(matrix.M13)*bounds.Z,MathF.Abs(matrix.M21)*bounds.X+MathF.Abs(matrix.M22)*bounds.Y+MathF.Abs(matrix.M23)*bounds.Z,MathF.Abs(matrix.M31)*bounds.X+MathF.Abs(matrix.M32)*bounds.Y+MathF.Abs(matrix.M33)*bounds.Z);}
+    private void OnExpandCollapseClick()=>_expanded=!_expanded;
+    public void Dispose(){EditorState.StateChanged-=OnEditorStateChanged;Runtime3d.ObjectPicked-=OnRuntimeObjectPicked;Runtime3d.TransformCommitted-=OnRuntimeTransformCommitted;_renderGate.Dispose();}
 }
-
-<style>
-    .editor-shell {
-        position: relative;
-        width: 100%;
-        height: 95vh;
-        min-height: 520px;
-        min-width: 0;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
-    .viewport {
-        position: relative;
-        /*
-                     * Ocupa todo o espaço disponibilizado pelo EditorLayout,
-                     * respeitando automaticamente o drawer e a appbar.
-                     */
-        flex: 1 1 auto;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 360px;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: radial-gradient( circle at center, var(--mud-palette-background-grey), var(--mud-palette-background) );
-    }
-
-    .runtime-canvas {
-        /*
-                     * O canvas continua ocupando o viewport inteiro.
-                     * Não altera sua escala/tamanho original.
-                     */
-        display: block;
-        width: 100%;
-        height: 100%;
-        min-width: 0;
-        min-height: 0;
-    }
-
-    .runtime-busy {
-        position: absolute;
-        top: 16px;
-        right: 16px;
-        z-index: 4;
-        pointer-events: none;
-    }
-
-    .viewport-status {
-        position: absolute;
-        top: 14px;
-        left: 14px;
-        z-index: 1;
-        pointer-events: none;
-    }
-
-    .measurement-overlay {
-        position: absolute;
-        left: 14px;
-        bottom: 14px;
-        z-index: 2;
-        pointer-events: none;
-    }
-
-    .viewport-empty {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: var(--mud-palette-text-secondary);
-    }
-
-    .inspector {
-        position: absolute;
-        top: 12px;
-        right: 12px;
-        z-index: 10;
-        width: 320px;
-        max-width: calc(100% - 24px);
-        max-height: calc(100% - 24px);
-        box-sizing: border-box;
-        overflow-x: hidden;
-        overflow-y: auto;
-        padding: 16px;
-    }
-
-    @@media (max-width: 900px) {
-        .editor-shell {
-            height: calc(100vh - 100px);
-            min-height: 480px;
-        }
-
-        .viewport {
-            min-height: 320px;
-        }
-
-        .inspector {
-            top: 8px;
-            right: 8px;
-            width: 290px;
-            max-width: calc(100% - 16px);
-            max-height: calc(100% - 16px);
-            padding: 12px;
-        }
-    }
-
-    @@media (max-width: 600px) {
-        .editor-shell {
-            height: calc(100vh - 90px);
-            min-height: 420px;
-        }
-
-        .viewport {
-            min-height: 280px;
-        }
-
-        .inspector {
-            top: 8px;
-            right: 8px;
-            width: min(320px, calc(100% - 16px));
-            max-height: 55%;
-            padding: 10px;
-        }
-    }
-</style>
