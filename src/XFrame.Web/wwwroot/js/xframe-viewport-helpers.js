@@ -2,11 +2,11 @@ let canvas = null;
 let root = null;
 let overlay = null;
 let toolbar = null;
-let resetButton = null;
 let axisBadge = null;
 let pointerMoveHandler = null;
 let pointerDownHandler = null;
 let pointerUpHandler = null;
+let resizeHandler = null;
 let middlePan = null;
 
 const AXES = ['X', 'Y', 'Z'];
@@ -19,24 +19,20 @@ const AXIS_COLORS = {
 export function initialize(canvasId) {
     canvas = document.getElementById(canvasId);
     root = canvas?.parentElement ?? null;
-    if (!canvas || !root || root.dataset.xframeViewportHelpers === 'true') return;
+    if (!canvas || !root || canvas.dataset.xframeViewportHelpers === 'true') return;
 
-    root.dataset.xframeViewportHelpers = 'true';
-    root.classList.add('xframe-viewport-overlay-host');
+    canvas.dataset.xframeViewportHelpers = 'true';
 
     overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     overlay.classList.add('xframe-viewport-overlay');
     overlay.setAttribute('aria-hidden', 'true');
     Object.assign(overlay.style, {
-        position: 'absolute',
-        inset: '0',
-        width: '100%',
-        height: '100%',
+        position: 'fixed',
         pointerEvents: 'none',
-        zIndex: '2',
+        zIndex: '5',
         overflow: 'hidden'
     });
-    root.appendChild(overlay);
+    document.body.appendChild(overlay);
 
     toolbar = document.createElement('div');
     toolbar.className = 'xframe-viewport-helper-status';
@@ -45,7 +41,7 @@ export function initialize(canvasId) {
     axisBadge.className = 'xframe-axis-badge';
     axisBadge.textContent = 'Eixo: —';
     toolbar.appendChild(axisBadge);
-    root.appendChild(toolbar);
+    document.body.appendChild(toolbar);
 
     pointerMoveHandler = event => {
         updateAxisHover(event);
@@ -53,13 +49,12 @@ export function initialize(canvasId) {
     };
     pointerDownHandler = event => {
         updateAxisHover(event);
-        if (event.button === 1) {
-            middlePan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
-            try { canvas.setPointerCapture(event.pointerId); } catch { }
-            canvas.style.cursor = 'grabbing';
-            event.preventDefault();
-            event.stopPropagation();
-        }
+        if (event.button !== 1) return;
+        middlePan = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+        try { canvas.setPointerCapture(event.pointerId); } catch { }
+        canvas.style.cursor = 'grabbing';
+        event.preventDefault();
+        event.stopPropagation();
     };
     pointerUpHandler = event => {
         if (!middlePan || event.pointerId !== middlePan.pointerId) return;
@@ -69,19 +64,22 @@ export function initialize(canvasId) {
         event.preventDefault();
         event.stopPropagation();
     };
+    resizeHandler = () => updateOverlayBounds();
 
     canvas.addEventListener('pointermove', pointerMoveHandler, { passive: false });
     canvas.addEventListener('pointerdown', pointerDownHandler, { passive: false });
     canvas.addEventListener('pointerup', pointerUpHandler, { passive: false });
     canvas.addEventListener('pointercancel', pointerUpHandler, { passive: false });
     canvas.addEventListener('lostpointercapture', pointerUpHandler, { passive: false });
+    window.addEventListener('resize', resizeHandler);
 
+    updateOverlayBounds();
     drawGrid();
 }
 
 export function setActiveAxis(axis) {
     const value = AXES.includes(axis) ? axis : 'None';
-    if (root) root.dataset.activeAxis = value;
+    if (canvas) canvas.dataset.activeAxis = value;
     if (axisBadge) axisBadge.textContent = value === 'None' ? 'Eixo: —' : `Eixo: ${value}`;
     drawGrid();
     drawAxisOverlay(value);
@@ -92,7 +90,20 @@ export function setThemeAwareGrid(enabled = true) {
 }
 
 export function resetCamera() {
+    const cubeButton = [...(root?.querySelectorAll('button') ?? [])].find(button => button.textContent?.trim() === 'ISO TFR');
+    if (cubeButton) {
+        cubeButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }));
+        return;
+    }
     window.dispatchEvent(new CustomEvent('xframe-camera-reset'));
+}
+
+function updateOverlayBounds() {
+    if (!canvas || !overlay || !toolbar) return;
+    const rect = canvas.getBoundingClientRect();
+    Object.assign(overlay.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+    Object.assign(toolbar.style, { position: 'fixed', left: `${rect.left + 14}px`, top: `${rect.top + 14}px` });
+    drawGrid();
 }
 
 function updateAxisHover(event) {
@@ -121,15 +132,8 @@ function drawGrid() {
     const fragment = document.createDocumentFragment();
     const spacing = 24;
     const major = spacing * 5;
-
-    for (let x = 0; x <= width; x += spacing) {
-        const line = svgLine(x, 0, x, height, x % major === 0 ? 'var(--mud-palette-primary)' : 'var(--mud-palette-divider)', x % major === 0 ? 0.20 : 0.10);
-        fragment.appendChild(line);
-    }
-    for (let y = 0; y <= height; y += spacing) {
-        const line = svgLine(0, y, width, y, y % major === 0 ? 'var(--mud-palette-primary)' : 'var(--mud-palette-divider)', y % major === 0 ? 0.20 : 0.10);
-        fragment.appendChild(line);
-    }
+    for (let x = 0; x <= width; x += spacing) fragment.appendChild(svgLine(x, 0, x, height, x % major === 0 ? 'var(--mud-palette-primary)' : 'var(--mud-palette-divider)', x % major === 0 ? 0.20 : 0.10));
+    for (let y = 0; y <= height; y += spacing) fragment.appendChild(svgLine(0, y, width, y, y % major === 0 ? 'var(--mud-palette-primary)' : 'var(--mud-palette-divider)', y % major === 0 ? 0.20 : 0.10));
     overlay.replaceChildren(fragment);
 }
 
@@ -140,15 +144,9 @@ function drawAxisOverlay(axis) {
     if (!target) return;
     const canvasRect = canvas.getBoundingClientRect();
     const labelRect = target.getBoundingClientRect();
-    const points = labels.map(element => {
-        const rect = element.getBoundingClientRect();
-        return { x: rect.left + rect.width / 2 - canvasRect.left, y: rect.top + rect.height / 2 - canvasRect.top };
-    });
+    const points = labels.map(element => { const r = element.getBoundingClientRect(); return { x: r.left + r.width / 2 - canvasRect.left, y: r.top + r.height / 2 - canvasRect.top }; });
     if (!points.length) return;
-    const center = {
-        x: points.reduce((sum, point) => sum + point.x, 0) / points.length,
-        y: points.reduce((sum, point) => sum + point.y, 0) / points.length
-    };
+    const center = { x: points.reduce((sum, point) => sum + point.x, 0) / points.length, y: points.reduce((sum, point) => sum + point.y, 0) / points.length };
     const end = { x: labelRect.left + labelRect.width / 2 - canvasRect.left, y: labelRect.top + labelRect.height / 2 - canvasRect.top };
     const line = svgLine(center.x, center.y, end.x, end.y, AXIS_COLORS[axis], 0.95);
     line.setAttribute('stroke-width', '8');
@@ -158,13 +156,8 @@ function drawAxisOverlay(axis) {
 
 function svgLine(x1, y1, x2, y2, stroke, opacity) {
     const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-    line.setAttribute('x1', String(x1));
-    line.setAttribute('y1', String(y1));
-    line.setAttribute('x2', String(x2));
-    line.setAttribute('y2', String(y2));
-    line.setAttribute('stroke', stroke);
-    line.setAttribute('opacity', String(opacity));
-    line.setAttribute('shape-rendering', 'crispEdges');
+    line.setAttribute('x1', String(x1)); line.setAttribute('y1', String(y1)); line.setAttribute('x2', String(x2)); line.setAttribute('y2', String(y2));
+    line.setAttribute('stroke', stroke); line.setAttribute('opacity', String(opacity)); line.setAttribute('shape-rendering', 'crispEdges');
     return line;
 }
 
@@ -180,10 +173,7 @@ function detectAxisHover(clientX, clientY) {
         const x = Math.max(bounds.left, Math.min(clientX, bounds.right));
         const y = Math.max(bounds.top, Math.min(clientY, bounds.bottom));
         const d = Math.hypot(clientX - x, clientY - y);
-        if (d < distance && clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
-            closest = axis;
-            distance = d;
-        }
+        if (d < distance && clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) { closest = axis; distance = d; }
     }
     return closest;
 }
@@ -194,22 +184,9 @@ export function dispose() {
     canvas?.removeEventListener('pointerup', pointerUpHandler);
     canvas?.removeEventListener('pointercancel', pointerUpHandler);
     canvas?.removeEventListener('lostpointercapture', pointerUpHandler);
+    window.removeEventListener('resize', resizeHandler);
     canvas?.style.removeProperty('cursor');
-    overlay?.remove();
-    toolbar?.remove();
-    if (root) {
-        delete root.dataset.xframeViewportHelpers;
-        delete root.dataset.activeAxis;
-        root.classList.remove('xframe-viewport-overlay-host');
-    }
-    canvas = null;
-    root = null;
-    overlay = null;
-    toolbar = null;
-    resetButton = null;
-    axisBadge = null;
-    pointerMoveHandler = null;
-    pointerDownHandler = null;
-    pointerUpHandler = null;
-    middlePan = null;
+    overlay?.remove(); toolbar?.remove();
+    if (canvas) { delete canvas.dataset.xframeViewportHelpers; delete canvas.dataset.activeAxis; }
+    canvas = null; root = null; overlay = null; toolbar = null; axisBadge = null; pointerMoveHandler = null; pointerDownHandler = null; pointerUpHandler = null; resizeHandler = null; middlePan = null;
 }
