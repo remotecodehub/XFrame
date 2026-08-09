@@ -8,8 +8,8 @@
 
 <PageTitle>XFrame Assembly Editor</PageTitle>
 
-<MudStack Class="editor-shell " Spacing="0">
-    <MudPaper Class="viewport " Elevation="1">
+<MudStack Class="editor-shell" Spacing="0">
+    <MudPaper Class="viewport" Elevation="1">
         <canvas id="xframe-3d-canvas" class="runtime-canvas"></canvas>
         @if (_runtimeBusy)
         {
@@ -34,9 +34,7 @@
         @if (EditorState.SelectedObject is { Geometry: not null } selected)
         {
             var measured = GetMeasuredDimensions(selected);
-            <MudChip T="string" Class="measurement-overlay" Color="MudColor.Info" Variant="Variant.Outlined" Size="Size.Small">
-                Dimensões: @FormatMeasurement(measured.X) × @FormatMeasurement(measured.Y) × @FormatMeasurement(measured.Z) @EditorUnits.DimensionSymbol
-            </MudChip>
+            <MudChip T="string" Class="measurement-overlay" Color="MudColor.Info" Variant="Variant.Outlined" Size="Size.Small">Dimensões: @FormatMeasurement(measured.X) × @FormatMeasurement(measured.Y) × @FormatMeasurement(measured.Z) @EditorUnits.DimensionSymbol</MudChip>
         }
     </MudPaper>
 
@@ -56,10 +54,7 @@
                 <MudTextField T="string" Label="Nome" @bind-Value="item.Name" OnBlur="NotifyChanged" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2" />
                 <MudTextField T="string" Label="Código do componente" @bind-Value="item.ComponentCode" OnBlur="NotifyChanged" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2" />
                 <MudSelect T="ComponentCategory" Label="Tipo de componente" @bind-Value="item.Category" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2">
-                    @foreach (var category in Enum.GetValues<ComponentCategory>())
-                    {
-                        <MudSelectItem Value="category">@category</MudSelectItem>
-                    }
+                    @foreach (var category in Enum.GetValues<ComponentCategory>()) { <MudSelectItem Value="category">@category</MudSelectItem> }
                 </MudSelect>
                 <MudTextField T="string" Label="Fabricante" @bind-Value="item.Manufacturer" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2" />
                 <MudTextField T="string" Label="Acabamento" @bind-Value="item.Finish" Margin="Margin.Dense" Variant="Variant.Outlined" Class="mb-2" />
@@ -88,15 +83,9 @@
                     <MudNumericField T="float" Label="Y" Value="@item.Dimensions.Y" ValueChanged="@(v => SetDimensions(item, item.Dimensions.X, v, item.Dimensions.Z))" Margin="Margin.Dense" Variant="Variant.Outlined" />
                     <MudNumericField T="float" Label="Z" Value="@item.Dimensions.Z" ValueChanged="@(v => SetDimensions(item, item.Dimensions.X, item.Dimensions.Y, v))" Margin="Margin.Dense" Variant="Variant.Outlined" />
                 </MudStack>
-                @if (item.Geometry is not null)
-                {
-                    <MudAlert Severity="Severity.Info" Dense="true">Fonte: @item.Geometry.SourceFileName (@item.Geometry.Format)</MudAlert>
-                }
+                @if (item.Geometry is not null) { <MudAlert Severity="Severity.Info" Dense="true">Fonte: @item.Geometry.SourceFileName (@item.Geometry.Format)</MudAlert> }
             }
-            else
-            {
-                <MudAlert Severity="Severity.Info" Dense="true">Nenhum componente selecionado.</MudAlert>
-            }
+            else { <MudAlert Severity="Severity.Info" Dense="true">Nenhum componente selecionado.</MudAlert> }
         </MudCollapse>
     </MudPaper>
 </MudStack>
@@ -111,61 +100,50 @@
     {
         EditorState.StateChanged += OnEditorStateChanged;
         Runtime3d.ObjectPicked += OnRuntimeObjectPicked;
+        Runtime3d.TransformPreviewAbsolute += OnRuntimeTransformPreview;
         Runtime3d.TransformCommitted += OnRuntimeTransformCommitted;
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
-        try
-        {
-            await Runtime3d.InitializeAsync("xframe-3d-canvas");
-            await Runtime3d.SetInteractionModeAsync(EditorState.ActiveTool);
-            await RequestRenderAsync();
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (JSException exception)
-        {
-            await InvokeAsync(() => Snackbar.Add(exception.Message, Severity.Warning));
-        }
+        try { await Runtime3d.InitializeAsync("xframe-3d-canvas"); await Runtime3d.SetInteractionModeAsync(EditorState.ActiveTool); await RequestRenderAsync(); await InvokeAsync(StateHasChanged); }
+        catch (JSException exception) { await InvokeAsync(() => Snackbar.Add(exception.Message, Severity.Warning)); }
     }
     private void OnEditorStateChanged(object? sender, EventArgs e) => InvokeAsync(async () => { StateHasChanged(); await RequestRenderAsync(); });
     private async Task RequestRenderAsync()
     {
-        var requestVersion=Interlocked.Increment(ref _renderRequestVersion);
-        _runtimeBusy=true;
+        var requestVersion = Interlocked.Increment(ref _renderRequestVersion);
+        _runtimeBusy = true;
         await _renderGate.WaitAsync();
         try
         {
             while (true)
             {
-                var version=Volatile.Read(ref _renderRequestVersion);
-                var snapshot=EditorState.Objects.Select(ToRuntimeObject).ToArray();
+                var version = Volatile.Read(ref _renderRequestVersion);
+                var snapshot = EditorState.Objects.Select(ToRuntimeObject).ToArray();
                 await Runtime3d.SetInteractionModeAsync(EditorState.ActiveTool);
-                await Runtime3d.RenderAsync(snapshot,EditorState.SelectedObject?.Id,EditorState.ActiveTool);
-                if (version==Volatile.Read(ref _renderRequestVersion)) break;
+                await Runtime3d.RenderAsync(snapshot, EditorState.SelectedObject?.Id, EditorState.ActiveTool);
+                if (version == Volatile.Read(ref _renderRequestVersion)) break;
             }
         }
-        finally
-        {
-            _renderGate.Release();
-            if(requestVersion==Volatile.Read(ref _renderRequestVersion)){_runtimeBusy=false;await InvokeAsync(StateHasChanged);}
-        }
+        finally { _renderGate.Release(); if (requestVersion == Volatile.Read(ref _renderRequestVersion)) { _runtimeBusy = false; await InvokeAsync(StateHasChanged); } }
     }
     private static RuntimeSceneObject ToRuntimeObject(EditorObject item)
     {
-        if(item.Geometry?.Positions is not { Length: > 0 } positions||item.Geometry.Indices is not { Length: > 0 } indices) throw new InvalidOperationException("O objeto não possui geometria importada.");
-        return new RuntimeSceneObject(item.Id,item.Name,item.Category,item.Transform,new RuntimeMesh(positions,indices,item.Geometry.Uvs),item.Geometry.Bounds,item.Material);
+        if (item.Geometry?.Positions is not { Length: > 0 } positions || item.Geometry.Indices is not { Length: > 0 } indices) throw new InvalidOperationException("O objeto não possui geometria importada.");
+        return new RuntimeSceneObject(item.Id, item.Name, item.Category, item.Transform, new RuntimeMesh(positions, indices, item.Geometry.Uvs), item.Geometry.Bounds, item.Material);
     }
+    private void OnRuntimeTransformPreview(object? sender, RuntimeTransformPreviewAbsoluteEventArgs args) => InvokeAsync(() => { EditorState.UpdateTransformPreview(args.ObjectId, args.Transform); StateHasChanged(); });
+    private void OnRuntimeTransformCommitted(object? sender, RuntimeTransformCommittedEventArgs args) => InvokeAsync(() => { var item = EditorState.Objects.FirstOrDefault(x => x.Id == args.ObjectId); if (item is null) return; item.Transform = args.Transform; EditorState.UpdateObject(item); });
     private void NotifyChanged(FocusEventArgs _) => EditorState.UpdateObject(EditorState.SelectedObject!);
-    private Task SetDimensions(EditorObject item,float x,float y,float z){item.Dimensions=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
-    private Task SetPosition(EditorObject item,float x,float y,float z){item.Transform.Position=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
-    private Task SetScale(EditorObject item,float x,float y,float z){item.Transform.Scale=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
-    private Task SetRotation(EditorObject item,float x,float y,float z){item.Transform.Rotation=new(x,y,z);EditorState.UpdateObject(item);return InvokeAsync(StateHasChanged);}
-    private void RemoveSelected(){if(EditorState.SelectedObject is { } item)EditorState.RemoveObject(item.Id);}
-    private void OnRuntimeObjectPicked(object? sender,RuntimeObjectPickedEventArgs args)=>EditorState.SelectObject(args.ObjectId);
-    private void OnRuntimeTransformCommitted(object? sender,RuntimeTransformCommittedEventArgs args)=>InvokeAsync(()=>{var item=EditorState.Objects.FirstOrDefault(x=>x.Id==args.ObjectId);if(item is null)return;item.Transform.Position=args.Transform.Position;item.Transform.Rotation=args.Transform.Rotation;item.Transform.Scale=args.Transform.Scale;EditorState.UpdateObject(item);});
-    private static string FormatMeasurement(float value)=>$"{value:0.##}";
-    private static System.Numerics.Vector3 GetMeasuredDimensions(EditorObject item){var bounds=item.Geometry!.Bounds*new System.Numerics.Vector3(MathF.Abs(item.Transform.Scale.X),MathF.Abs(item.Transform.Scale.Y),MathF.Abs(item.Transform.Scale.Z));var rotation=item.Transform.Rotation*(MathF.PI/180f);var matrix=System.Numerics.Matrix4x4.CreateFromYawPitchRoll(rotation.Y,rotation.X,rotation.Z);return new System.Numerics.Vector3(MathF.Abs(matrix.M11)*bounds.X+MathF.Abs(matrix.M12)*bounds.Y+MathF.Abs(matrix.M13)*bounds.Z,MathF.Abs(matrix.M21)*bounds.X+MathF.Abs(matrix.M22)*bounds.Y+MathF.Abs(matrix.M23)*bounds.Z,MathF.Abs(matrix.M31)*bounds.X+MathF.Abs(matrix.M32)*bounds.Y+MathF.Abs(matrix.M33)*bounds.Z);}
-    private void OnExpandCollapseClick()=>_expanded=!_expanded;
-    public void Dispose(){EditorState.StateChanged-=OnEditorStateChanged;Runtime3d.ObjectPicked-=OnRuntimeObjectPicked;Runtime3d.TransformCommitted-=OnRuntimeTransformCommitted;_renderGate.Dispose();}
+    private Task SetDimensions(EditorObject item, float x, float y, float z) { item.Dimensions = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
+    private Task SetPosition(EditorObject item, float x, float y, float z) { item.Transform.Position = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
+    private Task SetScale(EditorObject item, float x, float y, float z) { item.Transform.Scale = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
+    private Task SetRotation(EditorObject item, float x, float y, float z) { item.Transform.Rotation = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
+    private void RemoveSelected() { if (EditorState.SelectedObject is { } item) EditorState.RemoveObject(item.Id); }
+    private void OnRuntimeObjectPicked(object? sender, RuntimeObjectPickedEventArgs args) => EditorState.SelectObject(args.ObjectId);
+    private static string FormatMeasurement(float value) => $"{value:0.##}";
+    private static System.Numerics.Vector3 GetMeasuredDimensions(EditorObject item) { var bounds = item.Geometry!.Bounds * new System.Numerics.Vector3(MathF.Abs(item.Transform.Scale.X), MathF.Abs(item.Transform.Scale.Y), MathF.Abs(item.Transform.Scale.Z)); var rotation = item.Transform.Rotation * (MathF.PI / 180f); var matrix = System.Numerics.Matrix4x4.CreateFromYawPitchRoll(rotation.Y, rotation.X, rotation.Z); return new System.Numerics.Vector3(MathF.Abs(matrix.M11) * bounds.X + MathF.Abs(matrix.M12) * bounds.Y + MathF.Abs(matrix.M13) * bounds.Z, MathF.Abs(matrix.M21) * bounds.X + MathF.Abs(matrix.M22) * bounds.Y + MathF.Abs(matrix.M23) * bounds.Z, MathF.Abs(matrix.M31) * bounds.X + MathF.Abs(matrix.M32) * bounds.Y + MathF.Abs(matrix.M33) * bounds.Z); }
+    private void OnExpandCollapseClick() => _expanded = !_expanded;
+    public void Dispose() { EditorState.StateChanged -= OnEditorStateChanged; Runtime3d.ObjectPicked -= OnRuntimeObjectPicked; Runtime3d.TransformPreviewAbsolute -= OnRuntimeTransformPreview; Runtime3d.TransformCommitted -= OnRuntimeTransformCommitted; _renderGate.Dispose(); }
 }
