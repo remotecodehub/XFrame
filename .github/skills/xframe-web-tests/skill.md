@@ -6,6 +6,16 @@ Use this skill when creating or extending tests for `src/XFrame.Web` and the Bla
 
 The dedicated Blazor test project is `src/XFrame.Web.Tests` and uses .NET 10, bUnit, MSTest and MudBlazor.
 
+## Razor component/page styling preservation
+
+When editing a Razor page or component, preserve **all existing styles used by that page/component**. Do not remove, relocate, simplify, or regenerate existing CSS merely to introduce a new helper style.
+
+Page/component-specific CSS should remain in the same `.razor` file inside a `<style>...</style>` block placed after the `@code { ... }` block, when that is the project's established convention. This applies to normal selectors, pseudo-selectors, responsive rules and every existing `@media` rule. Treat those styles as part of the component implementation and preserve them unless the user explicitly requests a visual change.
+
+**Global rule:** when modifying a Razor page/component, never delete or overwrite existing page/component CSS or `@media` rules because a separate `.razor.css` file is unavailable or because the component is being refactored. Before replacing the file, inspect and preserve the complete existing `<style>` block. New helper styles must be appended or narrowly changed without removing unrelated selectors.
+
+Do not move page-specific styles into `app.css` merely to make them load. `app.css` is reserved for genuinely global styles. Do not create a new `.razor.css` file as a workaround unless explicitly requested.
+
 ## 3D model test resources
 
 Tests that require real 3D models must load them from the test project's `Resources/Models` directory.
