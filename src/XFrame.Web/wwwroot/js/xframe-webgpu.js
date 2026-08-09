@@ -49,17 +49,19 @@ struct VOut { @builtin(position) position: vec4f, @location(0) uv: vec2f };
 `;
 
 export async function initialize(id, callback) {
+    console.info('[xframe] initialize', { id });
     canvas = document.getElementById(id);
     dotnet = callback;
-    if (!canvas) throw new Error(`Canvas '${id}' não encontrado.`);
-    if (!navigator.gpu) throw new Error('WebGPU não está disponível neste navegador.');
+    if (!canvas) { console.error('[xframe] initialize: canvas not found', { id }); throw new Error(`Canvas '${id}' não encontrado.`); }
+    if (!navigator.gpu) { console.error('[xframe] initialize: WebGPU not available'); throw new Error('WebGPU não está disponível neste navegador.'); }
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) throw new Error('Nenhum adaptador WebGPU encontrado.');
+    if (!adapter) { console.error('[xframe] initialize: no adapter'); throw new Error('Nenhum adaptador WebGPU encontrado.'); }
     device = await adapter.requestDevice();
     context = canvas.getContext('webgpu');
-    if (!context) throw new Error('Não foi possível obter o contexto WebGPU.');
+    if (!context) { console.error('[xframe] initialize: getContext failed'); throw new Error('Não foi possível obter o contexto WebGPU.'); }
     const format = navigator.gpu.getPreferredCanvasFormat();
     context.configure({ device, format, alphaMode: 'opaque' });
+    console.info('[xframe] initialize: complete');
     pipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -94,6 +96,7 @@ export async function initialize(id, callback) {
     canvas.addEventListener('pointercancel', pointerUp);
     canvas.addEventListener('lostpointercapture', pointerUp);
     canvas.addEventListener('wheel', wheel, { passive: false });
+    console.info('[xframe] event listeners attached');
     createCameraViewCube();
     resizeObserver = new ResizeObserver(resize);
     resizeObserver.observe(canvas);
@@ -110,7 +113,7 @@ export function resize() {
     render(JSON.stringify(scene));
 }
 
-export function setTool(tool) { interactionTool = tool || 'Select'; gizmoHoverAxis = 'None'; gizmoActiveAxis = 'None'; // end any active drag when tool changes
+export function setTool(tool) { console.info('[xframe] setTool', { tool }); interactionTool = tool || 'Select'; gizmoHoverAxis = 'None'; gizmoActiveAxis = 'None'; // end any active drag when tool changes
     pointer.drag = null;
     // update unified controller
     toolController.activeTool = interactionTool;
@@ -336,8 +339,10 @@ function pointerDown(event) {
     render(JSON.stringify(scene));
 }
 function pointerMove(event) {
+    console.info('[xframe] pointerMove', { event });
     // Camera orbit
     if (pointer.right && pointer.orbit) {
+        console.info('[xframe] Camera orbit');
         camera.yaw = pointer.orbit.yaw - (event.clientX - pointer.orbit.x) * 0.01;
         camera.pitch = clamp(pointer.orbit.pitch - (event.clientY - pointer.orbit.y) * 0.01, -1.45, 1.45);
         render(JSON.stringify(scene)); return;
@@ -345,8 +350,15 @@ function pointerMove(event) {
 
     // Hover detection when not dragging
     if (!pointer.left || !toolController.isDragging || !toolController.dragData) {
+
         const nextHover = (interactionTool !== 'Translate' && interactionTool !== 'Rotate') || !scene.SelectedObjectId ? 'None' : gizmoAxisHit(event.offsetX, event.offsetY);
-        if (nextHover !== gizmoHoverAxis) { gizmoHoverAxis = nextHover; render(JSON.stringify(scene)); }
+        console.info('[xframe] Hover detection', { nextHover });
+
+        if (nextHover !== gizmoHoverAxis) {
+            console.info('[xframe] Hover axis changed', { nextHover , scene });
+            gizmoHoverAxis = nextHover;
+            render(JSON.stringify(scene));
+        }
         return;
     }
 
@@ -380,8 +392,23 @@ function pointerMove(event) {
     // Render immediate preview
     render(JSON.stringify(scene));
 
+    // Send per-axis preview to .NET to update the Inspector in real time (non-authoritative)
+    try {
+        const axis = d.axis; const idx = axisIndex(axis);
+        // send only the changed position component
+        const posValue = position[idx];
+        console.debug('[xframe] preview pos', { id: object.Id, axis, value: posValue });
+        dotnet?.invokeMethodAsync('OnTransformPreview', object.Id, 'pos', axis, posValue);
+        // if rotation changed, send rotation axis too
+        const rotValue = rotation[idx];
+        if (rotValue !== d.rotation[axisIndex(d.axis)]) {
+            console.debug('[xframe] preview rot', { id: object.Id, axis, value: rotValue });
+            dotnet?.invokeMethodAsync('OnTransformPreview', object.Id, 'rot', axis, rotValue);
+        }
+    } catch (e) { console.error('[xframe] preview invoke error', e); }
+
     // Compute deltas relative to drag start and send to .NET (authoritative)
-    // No round-trip to .NET during drag. Preview only. Commit will be sent on pointerUp.
+    // No round-trip to .NET during drag for authoritative state — we only send a lightweight preview above; commit will be sent on pointerUp.
     // const deltaPos = subtract(position, d.original);
     // const deltaRot = subtract(rotation, d.rotation);
 
@@ -391,7 +418,7 @@ function pointerUp(event) {
     pointer.left = false;
     pointer.right = false;
     pointer.orbit = null;
-
+    console.info('[xframe] pointerUp', { event });
     // If there is an active drag session, compute final absolute transform and commit
     if (toolController.isDragging && toolController.dragData && toolController.activeObjectId) {
         const d = toolController.dragData;
@@ -422,7 +449,19 @@ function pointerUp(event) {
             const [rx, ry, rz] = finalRot;
             const [sx, sy, sz] = finalScale;
             // Invoke the committed transform on the .NET runtime callbacks
+            console.info('[xframe] commit', { id: object.Id, px, py, pz, rx, ry, rz });
             dotnet?.invokeMethodAsync('OnTransformCommitted', object.Id, px, py, pz, rx, ry, rz, sx, sy, sz);
+        }
+    }
+
+    // Apply final transform locally to keep visual stable until .NET snapshot arrives
+    if (toolController.isDragging && toolController.activeObjectId) {
+        const commitObj = scene.Objects?.find(x => x.Id === toolController.activeObjectId);
+        if (commitObj) {
+            commitObj.Transform = commitObj.Transform || {};
+            commitObj.Transform.Position = { X: finalPos[0], Y: finalPos[1], Z: finalPos[2] };
+            commitObj.Transform.Rotation = { X: finalRot[0], Y: finalRot[1], Z: finalRot[2] };
+            commitObj.Transform.Scale = { X: finalScale[0], Y: finalScale[1], Z: finalScale[2] };
         }
     }
 

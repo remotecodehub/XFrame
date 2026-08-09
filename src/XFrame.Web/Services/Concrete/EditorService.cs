@@ -4,12 +4,15 @@ namespace XFrame.Web.Services.Concrete;
 
 public sealed class EditorService : IEditorService
 {
+    private readonly ILogger<EditorService>? _logger;
     private EditorAssembly _assembly;
     private EditorObject? _selectedObject;
 
-    public EditorService()
+    public EditorService(ILogger<EditorService>? logger)
     {
+        _logger = logger;
         _assembly = new EditorAssembly();
+        _logger?.LogInformation("EditorService initialized");
     }
 
     public EditorAssembly? CurrentAssembly => _assembly;
@@ -36,6 +39,7 @@ public sealed class EditorService : IEditorService
             ComponentCode = componentCode ?? string.Empty
         };
         _assembly.Objects.Add(item);
+        _logger?.LogInformation("AddObject: {Name} id={Id}", item.Name, item.Id);
         SelectObject(item.Id);
         return item;
     }
@@ -65,6 +69,7 @@ public sealed class EditorService : IEditorService
         };
         _assembly.Objects.Add(item);
         _selectedObject = item;
+        _logger?.LogInformation("AddImportedObject: {Name} id={Id} file={File}", item.Name, item.Id, fileName);
         NotifyChanged();
         return item;
     }
@@ -73,6 +78,7 @@ public sealed class EditorService : IEditorService
     {
         var removed = _assembly.Objects.RemoveAll(x => x.Id == objectId || x.ParentId == objectId) > 0;
         if (!removed) return false;
+        _logger?.LogInformation("RemoveObject: id={Id}", objectId);
         if (_selectedObject?.Id == objectId) _selectedObject = null;
         NotifyChanged();
         return true;
@@ -81,12 +87,14 @@ public sealed class EditorService : IEditorService
     public void SelectObject(Guid? objectId)
     {
         _selectedObject = objectId is null ? null : _assembly.Objects.FirstOrDefault(x => x.Id == objectId);
+        _logger?.LogInformation("SelectObject: {Id}", objectId);
         NotifyChanged();
     }
 
     public void UpdateObject(EditorObject editorObject)
     {
         _assembly.UpdatedAt = DateTime.UtcNow;
+        _logger?.LogInformation("UpdateObject: id={Id} pos=({X},{Y},{Z}) rot=({Rx},{Ry},{Rz})", editorObject.Id, editorObject.Transform.Position.X, editorObject.Transform.Position.Y, editorObject.Transform.Position.Z, editorObject.Transform.Rotation.X, editorObject.Transform.Rotation.Y, editorObject.Transform.Rotation.Z);
         NotifyChanged();
     }
 

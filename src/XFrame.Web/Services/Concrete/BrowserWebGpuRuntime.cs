@@ -5,23 +5,27 @@ using XFrame.Web.Services.Abstract;
 
 namespace XFrame.Web.Services.Concrete;
 
-public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
+public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRuntime> logger) : IEditor3dRuntime
 {
+    private readonly ILogger<BrowserWebGpuRuntime> _logger = logger;
     private IJSObjectReference? _module;
     private DotNetObjectReference<RuntimeCallbacks>? _callbacks;
     private string? _canvasId;
     public bool IsInitialized { get; private set; }
     public event EventHandler<RuntimeObjectPickedEventArgs>? ObjectPicked;
+    public event EventHandler<RuntimeTransformPreviewEventArgs>? TransformPreview;
     public event EventHandler<RuntimeTransformCommittedEventArgs>? TransformCommitted;
 
     public async Task InitializeAsync(string canvasId, CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Initialize runtime for canvas {CanvasId}", canvasId);
         if (IsInitialized && _canvasId == canvasId) return;
         _module = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-webgpu.js");
         _callbacks = DotNetObjectReference.Create(new RuntimeCallbacks(this));
         await _module.InvokeVoidAsync("initialize", cancellationToken, canvasId, _callbacks);
         _canvasId = canvasId;
         IsInitialized = true;
+        _logger.LogInformation("Runtime initialized for canvas {CanvasId}", canvasId);
     }
 
     public async Task SetInteractionModeAsync(EditorTool tool, CancellationToken cancellationToken = default)
@@ -84,6 +88,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
     }
 
     private void RaisePicked(Guid id) => ObjectPicked?.Invoke(this, new RuntimeObjectPickedEventArgs(id));
+    private void RaiseTransformPreview(Guid id, string kind, string axis, float value) => TransformPreview?.Invoke(this, new RuntimeTransformPreviewEventArgs(id, kind, axis, value));
     private void RaiseTransformCommitted(Guid id, EditorTransform transform) => TransformCommitted?.Invoke(this, new RuntimeTransformCommittedEventArgs(id, transform));
 
     private sealed class RuntimeCallbacks(BrowserWebGpuRuntime owner)
@@ -92,6 +97,16 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
         public void OnObjectPicked(string objectId)
         {
             if (Guid.TryParse(objectId, out var id)) owner.RaisePicked(id);
+        }
+
+        [JSInvokable]
+        public void OnTransformPreview(string objectId, string kind, string axis, float value)
+        {
+            if (Guid.TryParse(objectId, out var id))
+            {
+                owner._logger.LogInformation("OnTransformPreview {ObjectId} {Kind} {Axis}={Value}", id, kind, axis, value);
+                owner.RaiseTransformPreview(id, kind, axis, value);
+            }
         }
 
         [JSInvokable]
@@ -105,6 +120,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js) : IEditor3dRuntime
                     Rotation = new System.Numerics.Vector3(rx, ry, rz),
                     Scale = new System.Numerics.Vector3(sx, sy, sz)
                 };
+                owner._logger.LogInformation("OnTransformCommitted {ObjectId} pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
                 owner.RaiseTransformCommitted(id, transform);
             }
         }

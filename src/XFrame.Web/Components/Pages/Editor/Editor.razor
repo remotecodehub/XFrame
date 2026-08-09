@@ -113,6 +113,7 @@
     {
         EditorState.StateChanged += OnEditorStateChanged;
         Runtime3d.ObjectPicked += OnRuntimeObjectPicked;
+        Runtime3d.TransformPreview += OnRuntimeTransformPreview;
         Runtime3d.TransformCommitted += OnRuntimeTransformCommitted;
     }
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -179,6 +180,34 @@
     private Task SetRotation(EditorObject item, float x, float y, float z) { item.Transform.Rotation = new(x, y, z); EditorState.UpdateObject(item); return InvokeAsync(StateHasChanged); }
     private void RemoveSelected() { if (EditorState.SelectedObject is { } item) EditorState.RemoveObject(item.Id); }
     private void OnRuntimeObjectPicked(object? sender, RuntimeObjectPickedEventArgs args) => EditorState.SelectObject(args.ObjectId);
+    private void OnRuntimeTransformPreview(object? sender, RuntimeTransformPreviewEventArgs args) => InvokeAsync(() =>
+    {
+        var item = EditorState.Objects.FirstOrDefault(x => x.Id == args.ObjectId);
+        if (item is null || EditorState.SelectedObject?.Id != args.ObjectId) return;
+        // Apply only the specific axis component to avoid overwriting other axes.
+        try
+        {
+            if (args.Kind == "pos")
+            {
+                if (args.Axis == "X") item.Transform.Position = new System.Numerics.Vector3(args.Value, item.Transform.Position.Y, item.Transform.Position.Z);
+                else if (args.Axis == "Y") item.Transform.Position = new System.Numerics.Vector3(item.Transform.Position.X, args.Value, item.Transform.Position.Z);
+                else if (args.Axis == "Z") item.Transform.Position = new System.Numerics.Vector3(item.Transform.Position.X, item.Transform.Position.Y, args.Value);
+            }
+            else if (args.Kind == "rot")
+            {
+                if (args.Axis == "X") item.Transform.Rotation = new System.Numerics.Vector3(args.Value, item.Transform.Rotation.Y, item.Transform.Rotation.Z);
+                else if (args.Axis == "Y") item.Transform.Rotation = new System.Numerics.Vector3(item.Transform.Rotation.X, args.Value, item.Transform.Rotation.Z);
+                else if (args.Axis == "Z") item.Transform.Rotation = new System.Numerics.Vector3(item.Transform.Rotation.X, item.Transform.Rotation.Y, args.Value);
+            }
+            // Update only the object in EditorState so that RequestRenderAsync will send the new snapshot.
+            EditorState.UpdateObject(item);
+        }
+        catch (Exception ex)
+        {
+            // Avoid crashing the UI from malformed preview events
+            Console.Error.WriteLine($"OnRuntimeTransformPreview error: {ex}");
+        }
+    });
     private void OnRuntimeTransformCommitted(object? sender, RuntimeTransformCommittedEventArgs args) => InvokeAsync(() =>
     {
         var item = EditorState.Objects.FirstOrDefault(x => x.Id == args.ObjectId);
@@ -212,6 +241,7 @@
     {
         EditorState.StateChanged -= OnEditorStateChanged;
         Runtime3d.ObjectPicked -= OnRuntimeObjectPicked;
+        Runtime3d.TransformPreview -= OnRuntimeTransformPreview;
         Runtime3d.TransformCommitted -= OnRuntimeTransformCommitted;
         _renderGate.Dispose();
     }
