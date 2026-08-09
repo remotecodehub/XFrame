@@ -5,6 +5,7 @@ public interface IEditor3dRuntime : IAsyncDisposable
     bool IsInitialized { get; }
     event EventHandler<RuntimeObjectPickedEventArgs>? ObjectPicked;
     event EventHandler<RuntimeTransformPreviewEventArgs>? TransformPreview;
+    event EventHandler<RuntimeTransformPreviewAbsoluteEventArgs>? TransformPreviewAbsolute;
     event EventHandler<RuntimeTransformCommittedEventArgs>? TransformCommitted;
     Task InitializeAsync(string canvasId, CancellationToken cancellationToken = default);
     Task SetInteractionModeAsync(EditorTool tool, CancellationToken cancellationToken = default);
@@ -29,17 +30,20 @@ public sealed class RuntimeObjectPickedEventArgs(Guid objectId) : EventArgs
 public sealed class RuntimeTransformPreviewEventArgs(Guid objectId, string kind, string axis, float value) : EventArgs
 {
     public Guid ObjectId { get; } = objectId;
-    // kind: 'pos' | 'rot' | 'scale'
     public string Kind { get; } = kind;
-    // axis: 'X' | 'Y' | 'Z'
     public string Axis { get; } = axis;
     public float Value { get; } = value;
+}
+
+public sealed class RuntimeTransformPreviewAbsoluteEventArgs(Guid objectId, EditorTransform transform) : EventArgs
+{
+    public Guid ObjectId { get; } = objectId;
+    public EditorTransform Transform { get; } = transform;
 }
 
 public sealed class RuntimeTransformCommittedEventArgs(Guid objectId, EditorTransform transform) : EventArgs
 {
     public Guid ObjectId { get; } = objectId;
-    // The transform is absolute and must replace the EditorObject.Transform when committed.
     public EditorTransform Transform { get; } = transform;
 }
 
