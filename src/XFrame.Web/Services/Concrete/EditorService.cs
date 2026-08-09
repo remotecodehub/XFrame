@@ -28,16 +28,9 @@ public sealed class EditorService : IEditorService
         NotifyChanged();
     }
 
-    public EditorObject AddObject(string name, ComponentCategory category = ComponentCategory.Other,
-        Guid? parentId = null, string? componentCode = null)
+    public EditorObject AddObject(string name, ComponentCategory category = ComponentCategory.Other, Guid? parentId = null, string? componentCode = null)
     {
-        var item = new EditorObject
-        {
-            Name = string.IsNullOrWhiteSpace(name) ? "Novo componente" : name.Trim(),
-            Category = category,
-            ParentId = parentId,
-            ComponentCode = componentCode ?? string.Empty
-        };
+        var item = new EditorObject { Name = string.IsNullOrWhiteSpace(name) ? "Novo componente" : name.Trim(), Category = category, ParentId = parentId, ComponentCode = componentCode ?? string.Empty };
         _assembly.Objects.Add(item);
         _logger?.LogInformation("AddObject: {Name} id={Id}", item.Name, item.Id);
         SelectObject(item.Id);
@@ -57,15 +50,7 @@ public sealed class EditorService : IEditorService
             Description = metadata.Description,
             Dimensions = metadata.Dimensions,
             Material = new MaterialSource { Name = metadata.Material, Texture = metadata.Texture },
-            Geometry = new GeometrySource
-            {
-                SourceFileName = fileName,
-                Format = model.Format,
-                Bounds = model.Bounds,
-                Positions = model.Mesh.Positions,
-                Indices = model.Mesh.Indices,
-                Uvs = model.Mesh.Uvs
-            }
+            Geometry = new GeometrySource { SourceFileName = fileName, Format = model.Format, Bounds = model.Bounds, Positions = model.Mesh.Positions, Indices = model.Mesh.Indices, Uvs = model.Mesh.Uvs }
         };
         _assembly.Objects.Add(item);
         _selectedObject = item;
@@ -98,6 +83,14 @@ public sealed class EditorService : IEditorService
         NotifyChanged();
     }
 
+    public void UpdateTransformPreview(Guid objectId, EditorTransform transform)
+    {
+        var item = _assembly.Objects.FirstOrDefault(x => x.Id == objectId);
+        if (item is null) return;
+        item.Transform = CloneTransform(transform);
+        _logger?.LogDebug("UpdateTransformPreview: id={Id} pos=({X},{Y},{Z}) rot=({Rx},{Ry},{Rz})", objectId, transform.Position.X, transform.Position.Y, transform.Position.Z, transform.Rotation.X, transform.Rotation.Y, transform.Rotation.Z);
+    }
+
     public void SetActiveTool(EditorTool tool)
     {
         if (ActiveTool == tool) return;
@@ -111,4 +104,5 @@ public sealed class EditorService : IEditorService
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
+    private static EditorTransform CloneTransform(EditorTransform source) => new() { Position = source.Position, Rotation = source.Rotation, Scale = source.Scale };
 }
