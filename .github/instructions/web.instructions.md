@@ -57,6 +57,7 @@ hierarchy;
 inspector;
 viewport;
 JavaScript renderer.
+
 Transform synchronization
 
 EditorService owns the current Transform.
@@ -72,7 +73,8 @@ duplicated Transform objects;
 asynchronous rollback;
 timers;
 arbitrary delays.
-WebGPU
+
+## WebGPU
 
 The browser runtime is implemented through:
 
@@ -89,7 +91,7 @@ editor state;
 object metadata;
 interaction state.
 
-##JavaScript:
+## JavaScript:
 
 WebGPU resource management;
 rendering;
@@ -104,7 +106,7 @@ Existing behavior:
 right mouse button → camera orbit;
 scroll → zoom.
 
-Do not change this unless explicitly requested.
+Middle mouse button may be used for viewport pan when explicitly implemented, but must not break right-button orbit or scroll zoom.
 
 ## Editor tools
 
@@ -138,3 +140,13 @@ pointer-events: none;
 but interactive gizmos must remain interactive.
 
 Do not use arbitrary CSS changes that alter the established AppBar/Drawer/viewport geometry without checking the complete layout.
+
+## Razor component-local styles
+
+Do not rely on `.razor.css` files for page/component-specific editor styling in this project.
+
+Page- or component-specific CSS must be placed in a `<style>...</style>` block at the end of the corresponding `.razor` file, after the closing `@code { ... }` block.
+
+Use `app.css` only for genuinely global styles shared by multiple pages/components.
+
+Do not move page-local styles into `app.css` merely to make them load.
