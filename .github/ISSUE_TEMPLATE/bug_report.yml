@@ -1,0 +1,32 @@
+name: 🐞 Bug Report
+description: Create a new bug report.
+title: '🐞 [BUG]: <title>'
+labels: [Bug, Needs Triage]
+body:
+
+  - type: checkboxes
+    attributes:
+      label: Is there an existing issue for this?
+      description: 'Please [search :mag: the issues](https://github.com/remotecodehub/XFrame/issues) to check if this bug has already been reported.'
+      options:
+      - label: I have searched the existing issues
+        required: true
+  
+  - type: textarea
+    attributes:
+      label: Current Behavior
+      description: Describe the problem you are experiencing. **Please do not paste your logs here.** Screenshots are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Expected Behavior
+      description: Describe what you expect to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    attributes:
+      label: Further Information
+      description: If needed, please provide additional information about your issue (attachments, links, references, etc.).

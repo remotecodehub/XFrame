@@ -2,13 +2,13 @@ let canvas, device, context, pipeline, texturedPipeline, gizmoPipeline, depthTex
 let scene = { Objects: [], SelectedObjectId: null }, hasFramed = false;
 let interactionTool = 'Select';
 let gizmoHoverAxis = 'None', gizmoActiveAxis = 'None', gizmoVertex, gizmoUniform, gizmoBindGroup;
+let gizmoComponents = [];
 let renderSequence = 0;
 const gizmoLabels = new Map();
 let cameraViewCube = null;
 const GIZMO_VISUAL_SCALE = 0.24;
 // Hit area intentionally wider than the visual line for reliable axis selection.
 const GIZMO_HIT_TOLERANCE = 0.14;
-// Tuned sensitivities to reduce jitter and excessive response
 const TRANSLATION_SENSITIVITY = 0.6; // translation scale factor
 const ROTATION_SENSITIVITY = 0.2;    // rotation scale factor (degrees per interaction unit)
 const geometryBuffers = new Map();
@@ -23,6 +23,7 @@ const toolController = {
     pointerStart: null,
     lastPointer: null,
     dragStartTransform: null,
+    lastPreviewTransform: null,
     isDragging: false,
     dragData: null
 };
@@ -113,7 +114,12 @@ export function resize() {
     render(JSON.stringify(scene));
 }
 
-export function setTool(tool) { console.info('[xframe] setTool', { tool }); interactionTool = tool || 'Select'; gizmoHoverAxis = 'None'; gizmoActiveAxis = 'None'; // end any active drag when tool changes
+export function setTool(tool) {
+    const nextTool = tool || 'Select';
+    if (interactionTool === nextTool) return;
+    interactionTool = nextTool;
+    gizmoHoverAxis = 'None';
+    gizmoActiveAxis = 'None'; // end any active drag when tool changes
     pointer.drag = null;
     // update unified controller
     toolController.activeTool = interactionTool;
@@ -121,7 +127,9 @@ export function setTool(tool) { console.info('[xframe] setTool', { tool }); inte
     toolController.activeAxis = 'None';
     toolController.activeObjectId = null;
     toolController.dragData = null;
-    if (cameraViewCube) cameraViewCube.style.display = interactionTool === 'Camera' ? 'grid' : 'none'; }
+    toolController.lastPreviewTransform = null;
+    if (cameraViewCube) cameraViewCube.style.display = interactionTool === 'Camera' ? 'grid' : 'none';
+}
 
 export async function render(json) {
     if (!device || !context || !pipeline || !depthTexture) return;
@@ -188,12 +196,29 @@ function renderGizmo(pass, viewProjection) {
     const center = vectorValue(selected.__previewTransform?.Position ?? selected.Transform?.Position);
     const size = Math.max(camera.distance * GIZMO_VISUAL_SCALE, 0.01);
     const arrow = size * 0.12;
-    const xEnd = [center[0] + size, center[1], center[2]], yEnd = [center[0], center[1] + size, center[2]], zEnd = [center[0], center[1], center[2] + size];
-    const positions = [
-        ...center, ...xEnd, ...xEnd, xEnd[0] - arrow, xEnd[1] + arrow, xEnd[2], ...xEnd, xEnd[0] - arrow, xEnd[1] - arrow, xEnd[2],
-        ...center, ...yEnd, ...yEnd, yEnd[0] + arrow, yEnd[1] - arrow, yEnd[2], ...yEnd, yEnd[0] - arrow, yEnd[1] - arrow, yEnd[2],
-        ...center, ...zEnd, ...zEnd, zEnd[0] + arrow, zEnd[1], zEnd[2] - arrow, ...zEnd, zEnd[0] - arrow, zEnd[1], zEnd[2] - arrow
-    ];
+    const ends = { X: [center[0] + size, center[1], center[2]], Y: [center[0], center[1] + size, center[2]], Z: [center[0], center[1], center[2] + size] };
+    const thickness = Math.max(size * 0.018, 0.004);
+    const cameraForward = normalize(subtract(camera.target, getCameraPosition()));
+    const upReference = Math.abs(dot(cameraForward, [0, 0, 1])) > 0.98 ? [0, 1, 0] : [0, 0, 1];
+    const viewRight = normalize(cross(cameraForward, upReference));
+    const viewUp = normalize(cross(viewRight, cameraForward));
+    gizmoComponents = ['X', 'Y', 'Z'].map(axis => {
+        const end = ends[axis];
+        const perpendicular = normalize(cross(axisVector(axis), normalize(add(viewRight, viewUp))));
+        const offset = multiply(perpendicular, thickness);
+        const arrowPoints = axis === 'X'
+            ? [[end[0] - arrow, end[1] + arrow, end[2]], [end[0] - arrow, end[1] - arrow, end[2]]]
+            : axis === 'Y'
+                ? [[end[0] + arrow, end[1] - arrow, end[2]], [end[0] - arrow, end[1] - arrow, end[2]]]
+                : [[end[0] + arrow, end[1], end[2] - arrow], [end[0] - arrow, end[1], end[2] - arrow]];
+        return {
+            axis,
+            start: [...center],
+            end: [...end],
+            positions: [...center, ...end, ...add(center, offset), ...add(end, offset), ...add(center, multiply(offset, -1)), ...add(end, multiply(offset, -1)), ...end, ...arrowPoints[0], ...end, ...arrowPoints[1]]
+        };
+    });
+    const positions = gizmoComponents.flatMap(component => component.positions);
     if (!gizmoVertex || gizmoVertex.size !== positions.length * 4) {
         gizmoVertex?.buffer.destroy();
         gizmoVertex = { buffer: device.createBuffer({ size: positions.length * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST }), size: positions.length * 4 };
@@ -202,12 +227,14 @@ function renderGizmo(pass, viewProjection) {
     pass.setPipeline(gizmoPipeline);
     pass.setBindGroup(0, gizmoBindGroup);
     pass.setVertexBuffer(0, gizmoVertex.buffer);
-    const axes = ['X', 'Y', 'Z'];
-    for (let i = 0; i < axes.length; i++) {
-        const axis = axes[i];
+    let vertexOffset = 0;
+    for (let i = 0; i < gizmoComponents.length; i++) {
+        const axis = gizmoComponents[i].axis;
         const color = axis === gizmoActiveAxis || axis === gizmoHoverAxis ? [1, 1, 0, 1] : axisColor(axis);
         device.queue.writeBuffer(gizmoUniform, 0, new Float32Array([...viewProjection, ...color]));
-        pass.draw(6, 1, i * 6, 0);
+        const vertexCount = gizmoComponents[i].positions.length / 3;
+        pass.draw(vertexCount, 1, vertexOffset, 0);
+        vertexOffset += vertexCount;
     }
     updateGizmoLabels(center, size);
 }
@@ -331,7 +358,7 @@ function pointerDown(event) {
     const scale = vectorValue(selected.Transform?.Scale, [1,1,1]);
     toolController.dragStartTransform = { Position: [...position], Rotation: [...rotation], Scale: [...scale] };
     toolController.isDragging = true;
-    toolController.dragData = { axis, axisDirection, original: position, rotation, tool: interactionTool, startPoint, startVector, planeNormal };
+    toolController.dragData = { axis, axisDirection, original: position, rotation, scale, tool: interactionTool, startPoint, startVector, planeNormal };
     // also keep legacy pointer.drag for minimal compatibility
     pointer.drag = toolController.dragData;
     gizmoActiveAxis = axis;
@@ -339,10 +366,8 @@ function pointerDown(event) {
     render(JSON.stringify(scene));
 }
 function pointerMove(event) {
-    console.info('[xframe] pointerMove', { event });
     // Camera orbit
     if (pointer.right && pointer.orbit) {
-        console.info('[xframe] Camera orbit');
         camera.yaw = pointer.orbit.yaw - (event.clientX - pointer.orbit.x) * 0.01;
         camera.pitch = clamp(pointer.orbit.pitch - (event.clientY - pointer.orbit.y) * 0.01, -1.45, 1.45);
         render(JSON.stringify(scene)); return;
@@ -384,84 +409,46 @@ function pointerMove(event) {
         }
     }
 
-    // Update transient preview only
-    object.__previewTransform = object.__previewTransform || {};
-    object.__previewTransform.Position = { X: position[0], Y: position[1], Z: position[2] };
-    object.__previewTransform.Rotation = { X: rotation[0], Y: rotation[1], Z: rotation[2] };
+    // JS owns this complete transient snapshot until pointerUp. The confirmed object
+    // transform is never mutated during a drag, so all non-active axes are preserved.
+    const scale = vectorValue(d.scale, [1, 1, 1]);
+    const previewTransform = {
+        Position: { X: position[0], Y: position[1], Z: position[2] },
+        Rotation: { X: rotation[0], Y: rotation[1], Z: rotation[2] },
+        Scale: { X: scale[0], Y: scale[1], Z: scale[2] }
+    };
+    toolController.lastPreviewTransform = previewTransform;
+    object.__previewTransform = previewTransform;
 
     // Render immediate preview
     render(JSON.stringify(scene));
 
-    // Send per-axis preview to .NET to update the Inspector in real time (non-authoritative)
-    try {
-        const axis = d.axis; const idx = axisIndex(axis);
-        // send only the changed position component
-        const posValue = position[idx];
-        console.debug('[xframe] preview pos', { id: object.Id, axis, value: posValue });
-        dotnet?.invokeMethodAsync('OnTransformPreview', object.Id, 'pos', axis, posValue);
-        // if rotation changed, send rotation axis too
-        const rotValue = rotation[idx];
-        if (rotValue !== d.rotation[axisIndex(d.axis)]) {
-            console.debug('[xframe] preview rot', { id: object.Id, axis, value: rotValue });
-            dotnet?.invokeMethodAsync('OnTransformPreview', object.Id, 'rot', axis, rotValue);
-        }
-    } catch (e) { console.error('[xframe] preview invoke error', e); }
-
-    // Compute deltas relative to drag start and send to .NET (authoritative)
-    // No round-trip to .NET during drag for authoritative state — we only send a lightweight preview above; commit will be sent on pointerUp.
-    // const deltaPos = subtract(position, d.original);
-    // const deltaRot = subtract(rotation, d.rotation);
-
 }
-function pointerUp(event) { 
+function pointerUp(event) {
     // Stop dragging / orbiting;
     pointer.left = false;
     pointer.right = false;
     pointer.orbit = null;
-    console.info('[xframe] pointerUp', { event });
-    // If there is an active drag session, compute final absolute transform and commit
+    let committedTransform = null;
+    // Commit the last valid preview. Do not raycast again: pointerUp can occur on
+    // a location where the interaction plane is no longer intersectable.
     if (toolController.isDragging && toolController.dragData && toolController.activeObjectId) {
-        const d = toolController.dragData;
         const object = scene.Objects?.find(x => x.Id === toolController.activeObjectId);
-        if (object) {
-            // Compute final transform using StartTransform + current interaction
-            const start = toolController.dragStartTransform; // { Position: [...], Rotation: [...], Scale: [...] }
-            let finalPos = [...start.Position];
-            let finalRot = [...start.Rotation];
-            let finalScale = [...start.Scale ?? [1,1,1]];
-
-            if (d.tool === 'Translate') {
-                const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal) || d.startPoint;
-                const distance = dot(subtract(current, d.startPoint), d.axisDirection);
-                finalPos = add(d.original, multiply(d.axisDirection, distance * TRANSLATION_SENSITIVITY));
-            } else if (d.tool === 'Rotate') {
-                const current = rayPlaneIntersection(event.offsetX, event.offsetY, d.original, d.planeNormal) || d.startPoint;
-                const currentVector = subtract(current, d.original);
-                if (Math.hypot(...d.startVector) > 0.00001 && Math.hypot(...currentVector) > 0.00001) {
-                    const angle = Math.atan2(dot(d.axisDirection, cross(d.startVector, currentVector)), dot(d.startVector, currentVector)) * 180 / Math.PI * ROTATION_SENSITIVITY;
-                    finalRot = [...start.Rotation];
-                    finalRot[axisIndex(d.axis)] = start.Rotation[axisIndex(d.axis)] + angle;
-                }
-            }
-
-            // Send commit to .NET as absolute transform (Scale preserved)
-            const [px, py, pz] = finalPos;
-            const [rx, ry, rz] = finalRot;
-            const [sx, sy, sz] = finalScale;
-            // Invoke the committed transform on the .NET runtime callbacks
-            console.info('[xframe] commit', { id: object.Id, px, py, pz, rx, ry, rz });
-            dotnet?.invokeMethodAsync('OnTransformCommitted', object.Id, px, py, pz, rx, ry, rz, sx, sy, sz);
+        if (object && toolController.lastPreviewTransform) {
+            committedTransform = toolController.lastPreviewTransform;
+            const p = vectorValue(committedTransform.Position);
+            const r = vectorValue(committedTransform.Rotation);
+            const s = vectorValue(committedTransform.Scale, [1, 1, 1]);
+            dotnet?.invokeMethodAsync('OnTransformCommitted', object.Id, p[0], p[1], p[2], r[0], r[1], r[2], s[0], s[1], s[2]);
         }
     }
 
-    // Apply final transform locally to keep visual stable until .NET snapshot arrives
-    if (toolController.isDragging && toolController.activeObjectId) {
+    // Keep the committed preview visible until the authoritative .NET snapshot arrives.
+    if (committedTransform && toolController.activeObjectId) {
         const commitObj = scene.Objects?.find(x => x.Id === toolController.activeObjectId);
         if (commitObj) {
-            commitObj.Transform = commitObj.Transform || {};
-            commitObj.Transform.Position = { X: finalPos[0], Y: finalPos[1], Z: finalPos[2] };
-            commitObj.Transform.Rotation = { X: finalRot[0], Y: finalRot[1], Z: finalRot[2] };
-            commitObj.Transform.Scale = { X: finalScale[0], Y: finalScale[1], Z: finalScale[2] };
+            commitObj.Transform = committedTransform;
+            delete commitObj.__previewTransform;
         }
     }
 
@@ -472,13 +459,11 @@ function pointerUp(event) {
         toolController.activeAxis = 'None';
         toolController.activeObjectId = null;
         toolController.dragStartTransform = null;
+        toolController.lastPreviewTransform = null;
     }
 
     // Clear legacy pointer.drag
     pointer.drag = null;
-
-    // Remove transient previews to avoid stale visuals
-    for (const o of scene.Objects || []) delete o.__previewTransform;
 
     gizmoActiveAxis = 'None';
     hideGizmoLabels();
@@ -487,7 +472,7 @@ function pointerUp(event) {
     } catch (e) {
         // ignore
     }
-    // Do NOT call render(JSON.stringify(scene)) here — rely on .NET to push the authoritative scene back.
+    if (committedTransform) render(JSON.stringify(scene));
 }
 function wheel(event) { event.preventDefault(); camera.distance = clamp(camera.distance * Math.exp(event.deltaY * 0.001), 0.01, 100000); render(JSON.stringify(scene)); }
 function preventContextMenu(event) { event.preventDefault(); }
@@ -571,13 +556,12 @@ function gizmoAxisHit(x, y) {
     if ((interactionTool !== 'Translate' && interactionTool !== 'Rotate') || !scene.SelectedObjectId) return 'None';
     const selected = scene.Objects?.find(object => object.Id === scene.SelectedObjectId);
     if (!selected) return 'None';
-    const center = vectorValue(selected.Transform?.Position);
-    const size = Math.max(camera.distance * GIZMO_VISUAL_SCALE, 0.01);
     const ray = screenRay(x, y);
+    const size = Math.max(camera.distance * GIZMO_VISUAL_SCALE, 0.01);
     let result = 'None', closest = size * GIZMO_HIT_TOLERANCE;
-    for (const axis of ['X', 'Y', 'Z']) {
-        const distance = raySegmentDistance(ray.origin, ray.direction, center, add(center, multiply(axisVector(axis), size)));
-        if (distance !== null && distance < closest) { closest = distance; result = axis; }
+    for (const component of gizmoComponents) {
+        const distance = raySegmentDistance(ray.origin, ray.direction, component.start, component.end);
+        if (distance !== null && distance < closest) { closest = distance; result = component.axis; }
     }
     return result;
 }

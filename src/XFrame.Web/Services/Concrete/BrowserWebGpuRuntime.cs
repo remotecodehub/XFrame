@@ -11,6 +11,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
     private IJSObjectReference? _module;
     private DotNetObjectReference<RuntimeCallbacks>? _callbacks;
     private string? _canvasId;
+    private EditorTool? _interactionMode;
     public bool IsInitialized { get; private set; }
     public event EventHandler<RuntimeObjectPickedEventArgs>? ObjectPicked;
     public event EventHandler<RuntimeTransformPreviewEventArgs>? TransformPreview;
@@ -30,7 +31,9 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
 
     public async Task SetInteractionModeAsync(EditorTool tool, CancellationToken cancellationToken = default)
     {
-        if (_module is not null) await _module.InvokeVoidAsync("setTool", cancellationToken, tool.ToString());
+        if (_module is null || _interactionMode == tool) return;
+        _interactionMode = tool;
+        await _module.InvokeVoidAsync("setTool", cancellationToken, tool.ToString());
     }
 
     public async Task RenderAsync(IReadOnlyCollection<RuntimeSceneObject> objects, Guid? selectedObjectId = null, EditorTool tool = EditorTool.Select, CancellationToken cancellationToken = default)
@@ -51,6 +54,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         var module = _module;
         _module = null;
         _canvasId = null;
+        _interactionMode = null;
         _callbacks?.Dispose();
         _callbacks = null;
 
@@ -104,7 +108,6 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         {
             if (Guid.TryParse(objectId, out var id))
             {
-                owner._logger.LogInformation("OnTransformPreview {ObjectId} {Kind} {Axis}={Value}", id, kind, axis, value);
                 owner.RaiseTransformPreview(id, kind, axis, value);
             }
         }
