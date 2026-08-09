@@ -3,6 +3,7 @@
 @using XFrame.Web.Components.Pages.Editor
 @inject IEditorService Editor
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="_isDarkMode" Theme="Theme.RoyalBlueTheme" />
 <MudPopoverProvider />
@@ -23,6 +24,7 @@
             <MudTooltip Text="Rotate"><MudToggleItem Value="@("rotate")"><MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" /></MudToggleItem></MudTooltip>
             <MudTooltip Text="Camera / View"><MudToggleItem Value="@("camera")"><MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" /></MudToggleItem></MudTooltip>
         </MudToggleGroup>
+        <MudTooltip Text="Resetar câmera"><MudIconButton Icon="@Icons.Material.Filled.CenterFocusStrong" Color="MudColor.Default" OnClick="ResetCamera" /></MudTooltip>
         <MudSpacer />
         <MudTooltip Text="Alternar tema"><MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="MudColor.Inherit" OnClick="ToggleDarkMode" /></MudTooltip>
         <MudMenu Icon="@Icons.Material.Filled.MoreVert" Color="MudColor.Inherit"><MudMenuItem Icon="@Icons.Material.Filled.Person">Perfil</MudMenuItem><MudMenuItem Icon="@Icons.Material.Filled.Logout">Sair</MudMenuItem></MudMenu>
@@ -41,7 +43,6 @@
                     <MudText Typo="Typo.caption">@Editor.CurrentAssembly?.Name</MudText>
                     <MudButton StartIcon="@Icons.Material.Filled.UploadFile" Color="MudColor.Primary" Variant="Variant.Filled" Size="Size.Small" OnClick="OpenImportDialogAsync">Adicionar modelo 3D</MudButton>
                 </MudStack>
-                
                 <MudList T="string" Dense="true" Class="pt-4">
                     @if (Editor.Objects.Count == 0)
                     {
@@ -86,6 +87,12 @@
     private void NewProject() => Editor.NewAssembly();
     private void SaveProject() => Snackbar.Add("Assembly preparado para persistência futura.", Severity.Success);
     private void Select(Guid id) => Editor.SelectObject(id);
+    private async Task ResetCamera()
+    {
+        var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/xframe-viewport-helpers.js");
+        await module.InvokeVoidAsync("resetCamera");
+        await module.DisposeAsync();
+    }
     private async Task OpenImportDialogAsync()
     {
         var dialog = await DialogService.ShowAsync<ImportModelDialog>("Adicionar modelo 3D", new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
@@ -98,10 +105,6 @@
         ComponentCategory.Hardware or ComponentCategory.Fastener => Icons.Material.Filled.Settings,
         _ => Icons.Material.Filled.ViewInAr
     };
-    private async Task OnHotKey(HotkeyEventArgs args)
-    {
-        await OpenImportDialogAsync();
-    }
+    private async Task OnHotKey(HotkeyEventArgs args) => await OpenImportDialogAsync();
     public void Dispose() => Editor.StateChanged -= OnEditorStateChanged;
 }
- 
