@@ -7,7 +7,7 @@ let drag = null;
 let initialized = false;
 const AXES = ['X', 'Y', 'Z'];
 const HIT_RADIUS = 40;
-const WORLD_PER_PIXEL = 0.01;
+const WORLD_PER_PIXEL = 0.05;
 
 export async function initialize(canvasId, callback) {
     canvas = document.getElementById(canvasId);
@@ -28,7 +28,13 @@ export function setTool(nextTool) {
 }
 
 export function setScene(json) {
-    scene = typeof json === 'string' ? JSON.parse(json) : json;
+    const incoming = typeof json === 'string' ? JSON.parse(json) : json;
+    if (!incoming) return;
+    scene = incoming;
+    if (drag) {
+        const object = scene.Objects?.find(o => o.Id === drag.objectId);
+        if (object) object.Transform = cloneTransform(drag.last);
+    }
 }
 
 export async function dispose() {
@@ -76,11 +82,7 @@ function pointerMove(event) {
         Rotation: { X: drag.rotation[0], Y: drag.rotation[1], Z: drag.rotation[2] },
         Scale: { X: drag.scale[0], Y: drag.scale[1], Z: drag.scale[2] }
     };
-    const object = scene.Objects?.find(o => o.Id === drag.objectId);
-    if (object) {
-        object.Transform = drag.last;
-        renderer?.render?.(JSON.stringify(scene));
-    }
+    applyPreview();
     event.preventDefault();
     event.stopImmediatePropagation();
 }
@@ -89,12 +91,10 @@ function pointerUp(event) {
     if (!drag || event.pointerId !== drag.pointerId) return;
     finishDrag(event);
 }
-
 function pointerCancel(event) {
     if (!drag || event.pointerId !== drag.pointerId) return;
     finishDrag(event);
 }
-
 function lostPointerCapture(event) {
     if (!drag || event.pointerId !== drag.pointerId) return;
     finishDrag(event);
@@ -102,6 +102,7 @@ function lostPointerCapture(event) {
 
 function finishDrag(event) {
     const current = drag;
+    applyPreview();
     drag = null;
     try { if (canvas?.hasPointerCapture?.(current.pointerId)) canvas.releasePointerCapture(current.pointerId); } catch { }
     const t = current.last;
@@ -109,6 +110,14 @@ function finishDrag(event) {
     dotnet?.invokeMethodAsync('OnTransformCommitted', current.objectId, p[0], p[1], p[2], r[0], r[1], r[2], s[0], s[1], s[2]);
     event.preventDefault();
     event.stopImmediatePropagation();
+}
+
+function applyPreview() {
+    if (!drag) return;
+    const object = scene.Objects?.find(o => o.Id === drag.objectId);
+    if (!object) return;
+    object.Transform = cloneTransform(drag.last);
+    renderer?.render?.(JSON.stringify(scene));
 }
 
 function cancelDrag() {
@@ -130,23 +139,10 @@ function axisLabels() {
     }
     return result;
 }
-function hitAxis(x, y, labels) {
-    let best = 'None', distance = HIT_RADIUS;
-    for (const axis of AXES) {
-        const label = labels[axis];
-        if (!label) continue;
-        const d = Math.hypot(x - label.x, y - label.y);
-        if (d < distance) { distance = d; best = axis; }
-    }
-    return best;
-}
-function gizmoCenter(labels) {
-    const values = AXES.map(a => labels[a]).filter(Boolean);
-    if (!values.length) return { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 };
-    return { x: values.reduce((s, v) => s + v.x, 0) / values.length, y: values.reduce((s, v) => s + v.y, 0) / values.length };
-}
-function pointerPoint(event) { const rect = canvas.getBoundingClientRect(); return { x: event.clientX - rect.left, y: event.clientY - rect.top }; }
-function cloneTransform(t) { const p = vectorValue(t?.Position), r = vectorValue(t?.Rotation), s = vectorValue(t?.Scale, [1, 1, 1]); return { Position: { X:p[0],Y:p[1],Z:p[2] }, Rotation:{X:r[0],Y:r[1],Z:r[2]}, Scale:{X:s[0],Y:s[1],Z:s[2]} }; }
-function vectorValue(v, f=[0,0,0]) { return v ? [v.X ?? v.x ?? f[0], v.Y ?? v.y ?? f[1], v.Z ?? v.z ?? f[2]] : f; }
-function axisIndex(a) { return a === 'X' ? 0 : a === 'Y' ? 1 : 2; }
-function normalize2(v) { const l = Math.hypot(v[0], v[1]) || 1; return { x:v[0]/l, y:v[1]/l }; }
+function hitAxis(x, y, labels) { let best = 'None', distance = HIT_RADIUS; for (const axis of AXES) { const label = labels[axis]; if (!label) continue; const d = Math.hypot(x-label.x,y-label.y); if (d < distance) { distance=d; best=axis; } } return best; }
+function gizmoCenter(labels) { const values=AXES.map(a=>labels[a]).filter(Boolean); if (!values.length) return {x:canvas.clientWidth/2,y:canvas.clientHeight/2}; return {x:values.reduce((s,v)=>s+v.x,0)/values.length,y:values.reduce((s,v)=>s+v.y,0)/values.length}; }
+function pointerPoint(event) { const rect=canvas.getBoundingClientRect(); return {x:event.clientX-rect.left,y:event.clientY-rect.top}; }
+function cloneTransform(t) { const p=vectorValue(t?.Position),r=vectorValue(t?.Rotation),s=vectorValue(t?.Scale,[1,1,1]); return {Position:{X:p[0],Y:p[1],Z:p[2]},Rotation:{X:r[0],Y:r[1],Z:r[2]},Scale:{X:s[0],Y:s[1],Z:s[2]}}; }
+function vectorValue(v,f=[0,0,0]) { return v?[v.X??v.x??f[0],v.Y??v.y??f[1],v.Z??v.z??f[2]]:f; }
+function axisIndex(a) { return a==='X'?0:a==='Y'?1:2; }
+function normalize2(v) { const l=Math.hypot(v[0],v[1])||1; return {x:v[0]/l,y:v[1]/l}; }
