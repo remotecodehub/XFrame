@@ -3,6 +3,7 @@
 @using XFrame.Web.Components.Pages.Editor
 @inject IEditorService Editor
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <MudThemeProvider @ref="_mudThemeProvider" @bind-IsDarkMode="_isDarkMode" Theme="Theme.RoyalBlueTheme" />
 <MudPopoverProvider />
@@ -20,41 +21,23 @@
         <MudToggleGroup T="string" Value="_activeTool" ValueChanged="OnToolChanged" SelectionMode="SelectionMode.SingleSelection" Color="MudColor.Info" Dense="true">
             <MudTooltip Text="Select"><MudToggleItem Value="@("select")"><MudIcon Icon="@Icons.Material.Filled.NearMe" Size="Size.Small" /></MudToggleItem></MudTooltip>
             <MudTooltip Text="Translate"><MudToggleItem Value="@("translate")"><MudIcon Icon="@Icons.Material.Filled.OpenWith" Size="Size.Small" /></MudToggleItem></MudTooltip>
-            <MudTooltip Text="Rotate"><MudToggleItem Value="@("rotate")"><MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" /></MudToggleItem></MudTooltip>
             <MudTooltip Text="Camera / View"><MudToggleItem Value="@("camera")"><MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" /></MudToggleItem></MudTooltip>
         </MudToggleGroup>
+        <MudTooltip Text="Rotacionar: botão direito sobre um eixo do gizmo"><MudText Typo="Typo.caption" Class="ml-2 mr-2">RMB • Rotate</MudText></MudTooltip>
+        <MudTooltip Text="Resetar câmera"><MudIconButton Icon="@Icons.Material.Filled.CenterFocusStrong" Color="MudColor.Default" OnClick="ResetCamera" /></MudTooltip>
         <MudSpacer />
         <MudTooltip Text="Alternar tema"><MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="MudColor.Inherit" OnClick="ToggleDarkMode" /></MudTooltip>
         <MudMenu Icon="@Icons.Material.Filled.MoreVert" Color="MudColor.Inherit"><MudMenuItem Icon="@Icons.Material.Filled.Person">Perfil</MudMenuItem><MudMenuItem Icon="@Icons.Material.Filled.Logout">Sair</MudMenuItem></MudMenu>
     </MudAppBar>
 
     <MudDrawer @bind-Open="_drawerOpen" ClipMode="DrawerClipMode.Always" Elevation="1" Width="300px">
-        <MudDrawerHeader Class="pa-3">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudText Typo="Typo.subtitle1" Color="MudColor.Primary"><b>Cena</b></MudText>
-                <MudChip T="string" Size="Size.Small" Color="MudColor.Info">@Editor.Objects.Count objetos</MudChip>
-            </MudStack>
-        </MudDrawerHeader>
+        <MudDrawerHeader Class="pa-3"><MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween"><MudText Typo="Typo.subtitle1" Color="MudColor.Primary"><b>Cena</b></MudText><MudChip T="string" Size="Size.Small" Color="MudColor.Info">@Editor.Objects.Count objetos</MudChip></MudStack></MudDrawerHeader>
         <MudTabs Elevation="0" Class="pt-2">
             <MudTabPanel Text="Hierarquia" Icon="@Icons.Material.Filled.AccountTree">
-                <MudStack Class="px-3" Spacing="1">
-                    <MudText Typo="Typo.caption">@Editor.CurrentAssembly?.Name</MudText>
-                    <MudButton StartIcon="@Icons.Material.Filled.UploadFile" Color="MudColor.Primary" Variant="Variant.Filled" Size="Size.Small" OnClick="OpenImportDialogAsync">Adicionar modelo 3D</MudButton>
-                </MudStack>
-                
+                <MudStack Class="px-3" Spacing="1"><MudText Typo="Typo.caption">@Editor.CurrentAssembly?.Name</MudText><MudButton StartIcon="@Icons.Material.Filled.UploadFile" Color="MudColor.Primary" Variant="Variant.Filled" Size="Size.Small" OnClick="OpenImportDialogAsync">Adicionar modelo 3D</MudButton></MudStack>
                 <MudList T="string" Dense="true" Class="pt-4">
-                    @if (Editor.Objects.Count == 0)
-                    {
-                        <MudListItem T="string" Disabled="true">Nenhum objeto importado.</MudListItem>
-                    }
-                    @foreach (var item in Editor.Objects.Where(x => x.ParentId is null))
-                    {
-                        <MudListItem T="string" Icon="@IconFor(item.Category)" OnClick="@(() => Select(item.Id))" Class="@(Editor.SelectedObject?.Id == item.Id ? "mud-theme-primary" : null)">@item.Name</MudListItem>
-                        @foreach (var child in Editor.Objects.Where(x => x.ParentId == item.Id))
-                        {
-                            <MudListItem T="string" Icon="@Icons.Material.Filled.SubdirectoryArrowRight" OnClick="@(() => Select(child.Id))" Class="pl-8">@child.Name</MudListItem>
-                        }
-                    }
+                    @if (Editor.Objects.Count == 0){<MudListItem T="string" Disabled="true">Nenhum objeto importado.</MudListItem>}
+                    @foreach (var item in Editor.Objects.Where(x => x.ParentId is null)){<MudListItem T="string" Icon="@IconFor(item.Category)" OnClick="@(() => Select(item.Id))" Class="@(Editor.SelectedObject?.Id == item.Id ? "mud-theme-primary" : null)">@item.Name</MudListItem>@foreach (var child in Editor.Objects.Where(x => x.ParentId == item.Id)){<MudListItem T="string" Icon="@Icons.Material.Filled.SubdirectoryArrowRight" OnClick="@(() => Select(child.Id))" Class="pl-8">@child.Name</MudListItem>}}
                 </MudList>
             </MudTabPanel>
         </MudTabs>
@@ -63,45 +46,13 @@
 </MudLayout>
 <MudHotkey Key="@_selectedKey" KeyModifiers="@_selectedKeyModifiers" OnHotkeyPressed="OnHotKey" />
 @code {
-    private JsKey _selectedKey = JsKey.KeyO;
-    private IReadOnlyCollection<JsKeyModifier> _selectedKeyModifiers = [JsKeyModifier.ControlLeft];
-    private bool _drawerOpen = true;
-    private bool _isDarkMode = true;
-    private string _activeTool = "select";
-    private MudThemeProvider _mudThemeProvider = default!;
-
-    protected override void OnInitialized()
-    {
-        _activeTool = Editor.ActiveTool.ToString().ToLowerInvariant();
-        Editor.StateChanged += OnEditorStateChanged;
-    }
-    private void OnEditorStateChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
-    private void DrawerToggle() => _drawerOpen = !_drawerOpen;
-    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
-    private void OnToolChanged(string tool)
-    {
-        _activeTool = tool;
-        if (Enum.TryParse<EditorTool>(tool, true, out var selectedTool)) Editor.SetActiveTool(selectedTool);
-    }
-    private void NewProject() => Editor.NewAssembly();
-    private void SaveProject() => Snackbar.Add("Assembly preparado para persistência futura.", Severity.Success);
-    private void Select(Guid id) => Editor.SelectObject(id);
-    private async Task OpenImportDialogAsync()
-    {
-        var dialog = await DialogService.ShowAsync<ImportModelDialog>("Adicionar modelo 3D", new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
-        await dialog.Result;
-    }
-    private static string IconFor(ComponentCategory category) => category switch
-    {
-        ComponentCategory.Profile or ComponentCategory.Mullion or ComponentCategory.Transom => Icons.Material.Filled.ViewColumn,
-        ComponentCategory.Glass or ComponentCategory.Panel => Icons.Material.Filled.Square,
-        ComponentCategory.Hardware or ComponentCategory.Fastener => Icons.Material.Filled.Settings,
-        _ => Icons.Material.Filled.ViewInAr
-    };
-    private async Task OnHotKey(HotkeyEventArgs args)
-    {
-        await OpenImportDialogAsync();
-    }
-    public void Dispose() => Editor.StateChanged -= OnEditorStateChanged;
+    private JsKey _selectedKey=JsKey.KeyO; private IReadOnlyCollection<JsKeyModifier> _selectedKeyModifiers=[JsKeyModifier.ControlLeft]; private bool _drawerOpen=true; private bool _isDarkMode=true; private string _activeTool="select"; private MudThemeProvider _mudThemeProvider=default!;
+    protected override void OnInitialized(){_activeTool=Editor.ActiveTool.ToString().ToLowerInvariant();Editor.StateChanged+=OnEditorStateChanged;}
+    private void OnEditorStateChanged(object? sender,EventArgs e)=>InvokeAsync(StateHasChanged); private void DrawerToggle()=>_drawerOpen=!_drawerOpen; private void ToggleDarkMode()=>_isDarkMode=!_isDarkMode;
+    private void OnToolChanged(string tool){_activeTool=tool;if(Enum.TryParse<EditorTool>(tool,true,out var selectedTool))Editor.SetActiveTool(selectedTool);}
+    private void NewProject()=>Editor.NewAssembly(); private void SaveProject()=>Snackbar.Add("Assembly preparado para persistência futura.",Severity.Success); private void Select(Guid id)=>Editor.SelectObject(id);
+    private async Task ResetCamera(){var module=await JS.InvokeAsync<IJSObjectReference>("import","./js/xframe-viewport-helpers.js");await module.InvokeVoidAsync("resetCamera");await module.DisposeAsync();}
+    private async Task OpenImportDialogAsync(){var dialog=await DialogService.ShowAsync<ImportModelDialog>("Adicionar modelo 3D",new DialogOptions{CloseOnEscapeKey=true,FullWidth=true,MaxWidth=MaxWidth.Medium});await dialog.Result;}
+    private static string IconFor(ComponentCategory category)=>category switch{ComponentCategory.Profile or ComponentCategory.Mullion or ComponentCategory.Transom=>Icons.Material.Filled.ViewColumn,ComponentCategory.Glass or ComponentCategory.Panel=>Icons.Material.Filled.Square,ComponentCategory.Hardware or ComponentCategory.Fastener=>Icons.Material.Filled.Settings,_=>Icons.Material.Filled.ViewInAr};
+    private async Task OnHotKey(HotkeyEventArgs args)=>await OpenImportDialogAsync(); public void Dispose()=>Editor.StateChanged-=OnEditorStateChanged;
 }
- 

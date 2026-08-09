@@ -17,6 +17,7 @@ public interface IEditorService
     bool RemoveObject(Guid objectId);
     void SelectObject(Guid? objectId);
     void UpdateObject(EditorObject editorObject);
+    void UpdateTransformPreview(Guid objectId, EditorTransform transform);
     void SetActiveTool(EditorTool tool);
 }
 
