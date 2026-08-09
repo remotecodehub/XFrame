@@ -9,6 +9,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
     private readonly ILogger<BrowserWebGpuRuntime> _logger = logger;
     private IJSObjectReference? _module;
     private IJSObjectReference? _transformModule;
+    private IJSObjectReference? _viewportHelpers;
     private DotNetObjectReference<RuntimeCallbacks>? _callbacks;
     private string? _canvasId;
     private EditorTool? _interactionMode;
@@ -24,9 +25,11 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         if (IsInitialized && _canvasId == canvasId) return;
         _module = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-webgpu.js");
         _transformModule = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-transform-interaction.js");
+        _viewportHelpers = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-viewport-helpers.js");
         _callbacks = DotNetObjectReference.Create(new RuntimeCallbacks(this));
         await _module.InvokeVoidAsync("initialize", cancellationToken, canvasId, _callbacks);
         await _transformModule.InvokeVoidAsync("initialize", cancellationToken, canvasId, _callbacks);
+        await _viewportHelpers.InvokeVoidAsync("initialize", cancellationToken, canvasId);
         _canvasId = canvasId;
         IsInitialized = true;
         _logger.LogInformation("Runtime initialized for canvas {CanvasId}", canvasId);
@@ -58,12 +61,19 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         IsInitialized = false;
         var module = _module;
         var transformModule = _transformModule;
+        var viewportHelpers = _viewportHelpers;
         _module = null;
         _transformModule = null;
+        _viewportHelpers = null;
         _canvasId = null;
         _interactionMode = null;
         _callbacks?.Dispose();
         _callbacks = null;
+        if (viewportHelpers is not null)
+        {
+            try { await viewportHelpers.InvokeVoidAsync("dispose"); } catch (JSDisconnectedException) { } catch (ObjectDisposedException) { }
+            try { await viewportHelpers.DisposeAsync(); } catch (JSDisconnectedException) { } catch (ObjectDisposedException) { }
+        }
         if (transformModule is not null)
         {
             try { await transformModule.InvokeVoidAsync("dispose"); } catch (JSDisconnectedException) { } catch (ObjectDisposedException) { }
@@ -83,10 +93,8 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
     {
         [JSInvokable]
         public void OnObjectPicked(string objectId) { if (Guid.TryParse(objectId, out var id)) owner.RaisePicked(id); }
-
         [JSInvokable]
         public void OnTransformPreview(string objectId, string kind, string axis, float value) { if (Guid.TryParse(objectId, out var id)) owner.RaiseTransformPreview(id, kind, axis, value); }
-
         [JSInvokable]
         public void OnTransformPreviewAbsolute(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
@@ -95,7 +103,6 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
             owner._logger.LogDebug("Transform preview {ObjectId}: pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
             owner.RaiseTransformPreviewAbsolute(id, transform);
         }
-
         [JSInvokable]
         public void OnTransformCommitted(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
