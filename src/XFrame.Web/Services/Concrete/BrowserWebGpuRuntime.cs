@@ -94,7 +94,6 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
             var transform = new EditorTransform { Position = new(px, py, pz), Rotation = new(rx, ry, rz), Scale = new(sx, sy, sz) };
             owner._logger.LogDebug("Transform preview {ObjectId}: pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
             owner.RaiseTransformPreviewAbsolute(id, transform);
-            owner.RaiseTransformCommitted(id, transform);
         }
 
         [JSInvokable]
