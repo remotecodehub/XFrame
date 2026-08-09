@@ -10,7 +10,7 @@ Mozilla Public License Version 2.0
 
 1.2. "Contributor Version"
     means the combination of the Contributions of others (if any) used
-    by a Contributor and that particular Contributor’s Contribution.
+    by a Contributor and that particular Contributor's Contribution.
 
 1.3. "Contribution"
     means Covered Software of a particular Contributor.
@@ -78,9 +78,10 @@ Mozilla Public License Version 2.0
     License. For legal entities, "You" includes any entity that
     controls, is controlled by, or is under common control with You. For
     purposes of this definition, "control" means (a) the power, direct
-    or indirect, to cause the direction or management of such entity, or
-    (b) ownership of more than fifty percent (50%) of the outstanding
-    shares or beneficial ownership of such entity.
+    or indirect, to cause the direction or management of such entity,
+    whether by contract or otherwise, or (b) ownership of more than
+    fifty percent (50%) of the outstanding shares or beneficial
+    ownership of such entity.
 
 2. License Grants and Conditions
 --------------------------------
@@ -314,7 +315,7 @@ cross-claims or counter-claims.
 
 This License represents the complete agreement concerning the subject
 matter hereof. If any provision of this License is held to be
-enforceable, such provision shall be reformed only to the extent
+unenforceable, such provision shall be reformed only to the extent
 necessary to make it enforceable. Any law or regulation which provides
 that the language of a contract shall be construed against the drafter
 shall not be used to construe this License against a Contributor.
@@ -356,7 +357,7 @@ Exhibit A - Source Code Form License Notice
 
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
-  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 If it is not possible or desirable to put the notice in a particular
 file, then You may include the notice in a location (such as a LICENSE
@@ -370,3 +371,4 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
 
   This Source Code Form is "Incompatible With Secondary Licenses", as
   defined by the Mozilla Public License, v. 2.0.
+  
