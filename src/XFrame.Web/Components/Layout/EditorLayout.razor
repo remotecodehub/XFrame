@@ -21,9 +21,9 @@
         <MudToggleGroup T="string" Value="_activeTool" ValueChanged="OnToolChanged" SelectionMode="SelectionMode.SingleSelection" Color="MudColor.Info" Dense="true">
             <MudTooltip Text="Select"><MudToggleItem Value="@("select")"><MudIcon Icon="@Icons.Material.Filled.NearMe" Size="Size.Small" /></MudToggleItem></MudTooltip>
             <MudTooltip Text="Translate"><MudToggleItem Value="@("translate")"><MudIcon Icon="@Icons.Material.Filled.OpenWith" Size="Size.Small" /></MudToggleItem></MudTooltip>
-            <MudTooltip Text="Rotate"><MudToggleItem Value="@("rotate")"><MudIcon Icon="@Icons.Material.Filled.Autorenew" Size="Size.Small" /></MudToggleItem></MudTooltip>
             <MudTooltip Text="Camera / View"><MudToggleItem Value="@("camera")"><MudIcon Icon="@Icons.Material.Filled.CameraAlt" Size="Size.Small" /></MudToggleItem></MudTooltip>
         </MudToggleGroup>
+        <MudTooltip Text="Rotacionar: botão direito sobre um eixo do gizmo"><MudIconButton Icon="@Icons.Material.Filled.Autorenew" Color="MudColor.Default" OnClick="ActivateTransformForRotation" /></MudTooltip>
         <MudTooltip Text="Resetar câmera"><MudIconButton Icon="@Icons.Material.Filled.CenterFocusStrong" Color="MudColor.Default" OnClick="ResetCamera" /></MudTooltip>
         <MudSpacer />
         <MudTooltip Text="Alternar tema"><MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)" Color="MudColor.Inherit" OnClick="ToggleDarkMode" /></MudTooltip>
@@ -71,40 +71,18 @@
     private string _activeTool = "select";
     private MudThemeProvider _mudThemeProvider = default!;
 
-    protected override void OnInitialized()
-    {
-        _activeTool = Editor.ActiveTool.ToString().ToLowerInvariant();
-        Editor.StateChanged += OnEditorStateChanged;
-    }
-    private void OnEditorStateChanged(object? sender, EventArgs e) => InvokeAsync(StateHasChanged);
-    private void DrawerToggle() => _drawerOpen = !_drawerOpen;
-    private void ToggleDarkMode() => _isDarkMode = !_isDarkMode;
-    private void OnToolChanged(string tool)
-    {
-        _activeTool = tool;
-        if (Enum.TryParse<EditorTool>(tool, true, out var selectedTool)) Editor.SetActiveTool(selectedTool);
-    }
-    private void NewProject() => Editor.NewAssembly();
-    private void SaveProject() => Snackbar.Add("Assembly preparado para persistência futura.", Severity.Success);
-    private void Select(Guid id) => Editor.SelectObject(id);
-    private async Task ResetCamera()
-    {
-        var module = await JS.InvokeAsync<IJSObjectReference>("import", "./js/xframe-viewport-helpers.js");
-        await module.InvokeVoidAsync("resetCamera");
-        await module.DisposeAsync();
-    }
-    private async Task OpenImportDialogAsync()
-    {
-        var dialog = await DialogService.ShowAsync<ImportModelDialog>("Adicionar modelo 3D", new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
-        await dialog.Result;
-    }
-    private static string IconFor(ComponentCategory category) => category switch
-    {
-        ComponentCategory.Profile or ComponentCategory.Mullion or ComponentCategory.Transom => Icons.Material.Filled.ViewColumn,
-        ComponentCategory.Glass or ComponentCategory.Panel => Icons.Material.Filled.Square,
-        ComponentCategory.Hardware or ComponentCategory.Fastener => Icons.Material.Filled.Settings,
-        _ => Icons.Material.Filled.ViewInAr
-    };
-    private async Task OnHotKey(HotkeyEventArgs args) => await OpenImportDialogAsync();
-    public void Dispose() => Editor.StateChanged -= OnEditorStateChanged;
+    protected override void OnInitialized(){_activeTool=Editor.ActiveTool.ToString().ToLowerInvariant();Editor.StateChanged+=OnEditorStateChanged;}
+    private void OnEditorStateChanged(object? sender,EventArgs e)=>InvokeAsync(StateHasChanged);
+    private void DrawerToggle()=>_drawerOpen=!_drawerOpen;
+    private void ToggleDarkMode()=>_isDarkMode=!_isDarkMode;
+    private void OnToolChanged(string tool){_activeTool=tool;if(Enum.TryParse<EditorTool>(tool,true,out var selectedTool))Editor.SetActiveTool(selectedTool);}
+    private void ActivateTransformForRotation(){_activeTool="translate";Editor.SetActiveTool(EditorTool.Translate);}
+    private void NewProject()=>Editor.NewAssembly();
+    private void SaveProject()=>Snackbar.Add("Assembly preparado para persistência futura.",Severity.Success);
+    private void Select(Guid id)=>Editor.SelectObject(id);
+    private async Task ResetCamera(){var module=await JS.InvokeAsync<IJSObjectReference>("import","./js/xframe-viewport-helpers.js");await module.InvokeVoidAsync("resetCamera");await module.DisposeAsync();}
+    private async Task OpenImportDialogAsync(){var dialog=await DialogService.ShowAsync<ImportModelDialog>("Adicionar modelo 3D",new DialogOptions{CloseOnEscapeKey=true,FullWidth=true,MaxWidth=MaxWidth.Medium});await dialog.Result;}
+    private static string IconFor(ComponentCategory category)=>category switch{ComponentCategory.Profile or ComponentCategory.Mullion or ComponentCategory.Transom=>Icons.Material.Filled.ViewColumn,ComponentCategory.Glass or ComponentCategory.Panel=>Icons.Material.Filled.Square,ComponentCategory.Hardware or ComponentCategory.Fastener=>Icons.Material.Filled.Settings,_=>Icons.Material.Filled.ViewInAr};
+    private async Task OnHotKey(HotkeyEventArgs args)=>await OpenImportDialogAsync();
+    public void Dispose()=>Editor.StateChanged-=OnEditorStateChanged;
 }
