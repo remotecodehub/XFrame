@@ -91,7 +91,10 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         public void OnTransformPreviewAbsolute(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
             if (!Guid.TryParse(objectId, out var id)) return;
-            owner.RaiseTransformPreviewAbsolute(id, new EditorTransform { Position = new(px, py, pz), Rotation = new(rx, ry, rz), Scale = new(sx, sy, sz) });
+            var transform = new EditorTransform { Position = new(px, py, pz), Rotation = new(rx, ry, rz), Scale = new(sx, sy, sz) };
+            owner._logger.LogDebug("Transform preview {ObjectId}: pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
+            owner.RaiseTransformPreviewAbsolute(id, transform);
+            owner.RaiseTransformCommitted(id, transform);
         }
 
         [JSInvokable]
