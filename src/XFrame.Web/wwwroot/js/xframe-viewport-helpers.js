@@ -13,18 +13,14 @@ export function initialize(canvasId) {
     canvas = document.getElementById(canvasId);
     root = canvas?.parentElement ?? null;
     if (!canvas || !root || root.dataset.xframeViewportHelpers === 'true') return;
-
     root.dataset.xframeViewportHelpers = 'true';
     root.classList.add('xframe-viewport-host');
-
     grid = document.createElement('div');
     grid.className = 'xframe-viewport-grid';
     grid.setAttribute('aria-hidden', 'true');
     root.appendChild(grid);
-
     toolbar = document.createElement('div');
     toolbar.className = 'xframe-viewport-toolbar';
-
     resetButton = document.createElement('button');
     resetButton.type = 'button';
     resetButton.className = 'xframe-camera-reset';
@@ -32,13 +28,11 @@ export function initialize(canvasId) {
     resetButton.textContent = '↻';
     resetButton.addEventListener('click', resetCamera);
     toolbar.appendChild(resetButton);
-
     axisBadge = document.createElement('div');
     axisBadge.className = 'xframe-axis-badge';
     axisBadge.textContent = 'Eixo: —';
     toolbar.appendChild(axisBadge);
     root.appendChild(toolbar);
-
     pointerMoveHandler = event => updateAxisHover(event);
     pointerDownHandler = event => updateAxisHover(event);
     canvas.addEventListener('pointermove', pointerMoveHandler, { passive: true });
@@ -47,7 +41,7 @@ export function initialize(canvasId) {
 
 export function setActiveAxis(axis) {
     const value = AXES.includes(axis) ? axis : 'None';
-    root?.style.setProperty('--xframe-active-axis', value);
+    if (root) root.dataset.activeAxis = value;
     if (axisBadge) axisBadge.textContent = value === 'None' ? 'Eixo: —' : `Eixo: ${value}`;
 }
 
@@ -56,14 +50,18 @@ export function setThemeAwareGrid(enabled = true) {
 }
 
 export function resetCamera() {
+    const cubeButton = [...(root?.querySelectorAll('button') ?? [])].find(button => button.textContent?.trim() === 'ISO TFR');
+    if (cubeButton) {
+        cubeButton.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }));
+        return;
+    }
     window.dispatchEvent(new CustomEvent('xframe-camera-reset'));
 }
 
 function updateAxisHover(event) {
-    const target = event.target;
-    if (target !== canvas) return;
+    if (event.target !== canvas) return;
     const axis = detectAxisLabelHover(event.clientX, event.clientY);
-    root?.style.setProperty('--xframe-hover-axis', axis);
+    if (axisBadge && axis !== 'None') axisBadge.textContent = `Hover: ${axis}`;
 }
 
 function detectAxisLabelHover(clientX, clientY) {
@@ -95,8 +93,7 @@ export function dispose() {
     if (root) {
         delete root.dataset.xframeViewportHelpers;
         root.classList.remove('xframe-viewport-host');
-        root.style.removeProperty('--xframe-active-axis');
-        root.style.removeProperty('--xframe-hover-axis');
+        delete root.dataset.activeAxis;
     }
     canvas = null;
     root = null;
