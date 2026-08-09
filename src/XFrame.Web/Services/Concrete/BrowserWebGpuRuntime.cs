@@ -23,7 +23,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         _logger.LogInformation("Initialize runtime for canvas {CanvasId}", canvasId);
         if (IsInitialized && _canvasId == canvasId) return;
         _module = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-webgpu.js");
-        _transformModule = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-transform-tool.js");
+        _transformModule = await js.InvokeAsync<IJSObjectReference>("import", cancellationToken, "./js/xframe-transform-interaction.js");
         _callbacks = DotNetObjectReference.Create(new RuntimeCallbacks(this));
         await _module.InvokeVoidAsync("initialize", cancellationToken, canvasId, _callbacks);
         await _transformModule.InvokeVoidAsync("initialize", cancellationToken, canvasId, _callbacks);
@@ -37,8 +37,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         if (_module is null || _interactionMode == tool) return;
         _interactionMode = tool;
         await _module.InvokeVoidAsync("setTool", cancellationToken, tool.ToString());
-        if (_transformModule is not null)
-            await _transformModule.InvokeVoidAsync("setTool", cancellationToken, tool.ToString());
+        if (_transformModule is not null) await _transformModule.InvokeVoidAsync("setTool", cancellationToken, tool.ToString());
     }
 
     public async Task RenderAsync(IReadOnlyCollection<RuntimeSceneObject> objects, Guid? selectedObjectId = null, EditorTool tool = EditorTool.Select, CancellationToken cancellationToken = default)
@@ -46,8 +45,7 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         if (_module is null) return;
         var payload = JsonSerializer.Serialize(new { Objects = objects, SelectedObjectId = selectedObjectId, Tool = tool.ToString() });
         await _module.InvokeVoidAsync("render", cancellationToken, payload);
-        if (_transformModule is not null)
-            await _transformModule.InvokeVoidAsync("setScene", cancellationToken, payload);
+        if (_transformModule is not null) await _transformModule.InvokeVoidAsync("setScene", cancellationToken, payload);
     }
 
     public async Task ResizeAsync(CancellationToken cancellationToken = default)
@@ -66,7 +64,6 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
         _interactionMode = null;
         _callbacks?.Dispose();
         _callbacks = null;
-
         if (transformModule is not null)
         {
             try { await transformModule.InvokeVoidAsync("dispose"); } catch (JSDisconnectedException) { } catch (ObjectDisposedException) { }
@@ -85,41 +82,23 @@ public sealed class BrowserWebGpuRuntime(IJSRuntime js, ILogger<BrowserWebGpuRun
     private sealed class RuntimeCallbacks(BrowserWebGpuRuntime owner)
     {
         [JSInvokable]
-        public void OnObjectPicked(string objectId)
-        {
-            if (Guid.TryParse(objectId, out var id)) owner.RaisePicked(id);
-        }
+        public void OnObjectPicked(string objectId) { if (Guid.TryParse(objectId, out var id)) owner.RaisePicked(id); }
 
         [JSInvokable]
-        public void OnTransformPreview(string objectId, string kind, string axis, float value)
-        {
-            if (Guid.TryParse(objectId, out var id)) owner.RaiseTransformPreview(id, kind, axis, value);
-        }
+        public void OnTransformPreview(string objectId, string kind, string axis, float value) { if (Guid.TryParse(objectId, out var id)) owner.RaiseTransformPreview(id, kind, axis, value); }
 
         [JSInvokable]
         public void OnTransformPreviewAbsolute(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
             if (!Guid.TryParse(objectId, out var id)) return;
-            var transform = new EditorTransform
-            {
-                Position = new(px, py, pz),
-                Rotation = new(rx, ry, rz),
-                Scale = new(sx, sy, sz)
-            };
-            owner._logger.LogDebug("Transform preview {ObjectId}: pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
-            owner.RaiseTransformPreviewAbsolute(id, transform);
+            owner.RaiseTransformPreviewAbsolute(id, new EditorTransform { Position = new(px, py, pz), Rotation = new(rx, ry, rz), Scale = new(sx, sy, sz) });
         }
 
         [JSInvokable]
         public void OnTransformCommitted(string objectId, float px, float py, float pz, float rx, float ry, float rz, float sx, float sy, float sz)
         {
             if (!Guid.TryParse(objectId, out var id)) return;
-            var transform = new EditorTransform
-            {
-                Position = new(px, py, pz),
-                Rotation = new(rx, ry, rz),
-                Scale = new(sx, sy, sz)
-            };
+            var transform = new EditorTransform { Position = new(px, py, pz), Rotation = new(rx, ry, rz), Scale = new(sx, sy, sz) };
             owner._logger.LogInformation("OnTransformCommitted {ObjectId} pos=({Px},{Py},{Pz}) rot=({Rx},{Ry},{Rz})", id, px, py, pz, rx, ry, rz);
             owner.RaiseTransformCommitted(id, transform);
         }
